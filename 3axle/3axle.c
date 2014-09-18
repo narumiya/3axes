@@ -43,6 +43,7 @@ void abort(void);
 #define INTERRUPT_TIME 		0.005
 
 /*足回り*/
+#define MAX_DUTY				50
 #define LEFT_TIRE_CW			PORT7.DR.BIT.B4
 #define LEFT_TIRE_CCW		PORT7.DR.BIT.B6
 #define LEFT_TIRE_DUTY		MTU4.TGRB
@@ -62,7 +63,7 @@ void abort(void);
 #define STICK_NO_MOVE_RANGE 			0.2		//±20%
 
 /*車体操作*/
-#define PWM_PER					60
+#define PWM_PER					30
 #define OPERATE_DEGREE		90	//1000ms Maxでステックを倒したときどれだけ回転するか（度）
 
 /*モーター出力*/
@@ -76,7 +77,7 @@ void abort(void);
 /*中心からエンコーダまでの距離*/
 #define CENTER_TO_ENC		237
 
-#define PULSE						500*4
+#define PULSE						2000
 
 /*エンコーダタイヤ直径*/
 #define ENC_DIAMETER_F 		51
@@ -84,8 +85,8 @@ void abort(void);
 #define ENC_DIAMETER_R		51
 
 /*PD制御*/
-#define ROCK_P_GAIN			1//10.0
-#define ROCK_D_GAIN			1//45.0
+#define ROCK_P_GAIN			5
+#define ROCK_D_GAIN			20
 
 #define BUZZER						PORT2.DR.BIT.B2
 
@@ -325,7 +326,7 @@ void calculate( void )
 
 	//坂下さん
 	//三角形の頂点の座標を算出
-	g_vertex_b_x += (fabs(enc_dis_subt_r) * cos(D_TO_R( gap_degree( g_degree  + (degree_reverse_r - 30 )))) + fabs(enc_dis_subt_l) * cos(D_TO_R( gap_degree(g_degree + (degree_reverse_l - 150)))));
+	/*g_vertex_b_x += (fabs(enc_dis_subt_r) * cos(D_TO_R( gap_degree( g_degree  + (degree_reverse_r - 30 )))) + fabs(enc_dis_subt_l) * cos(D_TO_R( gap_degree(g_degree + (degree_reverse_l - 150)))));
 	g_vertex_b_y += (fabs(enc_dis_subt_r) * sin(D_TO_R( gap_degree(g_degree  + (degree_reverse_r - 30 )))) + fabs(enc_dis_subt_l) * sin(D_TO_R( gap_degree(g_degree  + (degree_reverse_l - 150)))));
 	g_vertex_l_x += (fabs(enc_dis_subt_l) * cos(D_TO_R( gap_degree(g_degree - 150.0 + degree_reverse_l ))) + fabs(enc_dis_subt_f) * cos(D_TO_R( gap_degree(g_degree + 90.0 + degree_reverse_f))));
 	g_vertex_l_y += (fabs(enc_dis_subt_l) * sin(D_TO_R( gap_degree(g_degree - 150.0 + degree_reverse_l ))) + fabs(enc_dis_subt_f) * sin(D_TO_R( gap_degree(g_degree + 90.0 + degree_reverse_f))));
@@ -333,7 +334,7 @@ void calculate( void )
 	g_vertex_r_y += (fabs(enc_dis_subt_f) * sin(D_TO_R( gap_degree(g_degree + 90.0 + degree_reverse_f ))) + fabs(enc_dis_subt_r) * sin(D_TO_R( gap_degree(g_degree + (degree_reverse_r - 30)))));
 	
 	g_x_c = (g_vertex_b_x + g_vertex_l_x + g_vertex_r_x) / 3;
-	g_y_c = (g_vertex_b_y + g_vertex_l_y + g_vertex_r_y) / 3;
+	g_y_c = (g_vertex_b_y + g_vertex_l_y + g_vertex_r_y) / 3;*/
 	
 	//自分
 	enc_x_f += 2 * fabs( enc_dis_subt_f ) * cos( D_TO_R( gap_degree( 90 + g_degree + degree_reverse_f ) ) );
@@ -504,8 +505,9 @@ void main(void)
 					Motor_output_y = straight_output_y();
 					//車体角度操作
 					target_degree += turn_output();
-
-					motor_output_turn = pd_rock( g_degree , gap_degree( target_degree ) );
+					target_degree = gap_degree( target_degree );
+					
+					motor_output_turn = pd_rock( g_degree , target_degree );
 
 					motor_output_l	= get_motor_output_l( Motor_output_x, Motor_output_y, g_degree ) + motor_output_turn;
 					motor_output_r	= get_motor_output_r( Motor_output_x, Motor_output_y, g_degree ) + motor_output_turn;
@@ -549,8 +551,8 @@ void main(void)
 				//sprintf(str,"%.4f %.4f, %.4f,\n\r", ENCF() , ENCL() ,ENCR() );
 				//sprintf( str,"%.4f,%f,%d,%d,%d,\n\r",g_Rate_f,g_Angle_f,g_X_acc,g_Y_acc,g_Z_acc );
 				//sprintf(str,"%.4f, \n\r",  motor_output_turn);
-				sprintf( str,"%.4f, %.4f , %.4f, %.4f, %.4f\n\r", motor_output_l, motor_output_r, motor_output_b , g_degree , target_degree);
-				transmit( str );
+				//sprintf( str,"%.4f, %.4f , %.4f, %.4f, %.4f\n\r", motor_output_l, motor_output_r, motor_output_b , g_degree , target_degree);
+				//transmit( str );
 			}
 		}
 	}
@@ -782,7 +784,7 @@ void move_left_tire( float left_duty )
 		LEFT_TIRE_CCW 	= 0;
 	}
 	
-	left_duty = Limit_ul( 30 , 0 , left_duty );
+	left_duty = Limit_ul( MAX_DUTY , 0 , left_duty );
 	LEFT_TIRE_DUTY = ( ( PWM_PERIOD * left_duty ) /100 );
 }
 
@@ -820,7 +822,7 @@ void move_right_tire( float right_duty )
 		RIGHT_TIRE_CW	= 0;
 		RIGHT_TIRE_CCW 	= 0;
 	}
-	right_duty = Limit_ul( 30 , 0 , right_duty );
+	right_duty = Limit_ul( MAX_DUTY , 0 , right_duty );
 	RIGHT_TIRE_DUTY = ( ( PWM_PERIOD * right_duty ) /100 );
 }
 
@@ -859,7 +861,7 @@ void move_back_tire( float back_duty )
 		BACK_TIRE_CCW 	= 0;
 	}
 	
-	back_duty = Limit_ul( 30 , 0 , back_duty );
+	back_duty = Limit_ul( MAX_DUTY , 0 , back_duty );
 	BACK_TIRE_DUTY = ( ( PWM_PERIOD * back_duty ) /100 );
 }
 
@@ -890,7 +892,7 @@ float get_motor_output_l(float motor_output_x,float motor_output_y,float degree_
 		degree_reverse_y = 0.0;
 	}
 	
-	motor_output_l = fabs(motor_output_x) * cos(D_TO_R(degree_now + (150.0 + degree_reverse_x))) + fabs(motor_output_y) * sin(D_TO_R(degree_now + (150.0 + degree_reverse_y)));
+	motor_output_l = fabs(motor_output_x) * cos(D_TO_R(gap_degree(degree_now + (150.0 + degree_reverse_x)))) + fabs(motor_output_y) * sin(D_TO_R(gap_degree(degree_now + (150.0 + degree_reverse_y))));
 	return(motor_output_l);
 }
 
@@ -921,7 +923,7 @@ float get_motor_output_r(float motor_output_x,float motor_output_y,float degree_
 		degree_reverse_y = 0.0;
 	}
 	
-	motor_output_r = fabs(motor_output_x) * cos(D_TO_R(degree_now +( 30.0 + degree_reverse_x))) + fabs(motor_output_y) * sin(D_TO_R(degree_now + (30.0 + degree_reverse_y)));
+	motor_output_r = fabs(motor_output_x) * cos(D_TO_R(gap_degree(degree_now +( 30.0 + degree_reverse_x)))) + fabs(motor_output_y) * sin(D_TO_R(gap_degree(degree_now + (30.0 + degree_reverse_y))));
 	return(motor_output_r);
 }
 
@@ -952,7 +954,7 @@ float get_motor_output_b(float motor_output_x,float motor_output_y,float degree_
 		degree_reverse_y = 0.0;
 	}
 	
-	motor_output_b = fabs(motor_output_x) * cos(D_TO_R(degree_now  + (degree_reverse_x - 90.0))) + fabs(motor_output_y) * sin(D_TO_R(degree_now +( degree_reverse_y - 90.0)));
+	motor_output_b = fabs(motor_output_x) * cos(D_TO_R(gap_degree(degree_now  + (degree_reverse_x - 90.0)))) + fabs(motor_output_y) * sin(D_TO_R(gap_degree(degree_now +( degree_reverse_y - 90.0))));
 	return(motor_output_b);
 }
 
