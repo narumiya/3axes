@@ -26,6 +26,8 @@ void abort(void);
 #include "init_rx62n.h"
 #include "iodefine.h"
 
+#define D//ebug1		//ƒXƒ^[ƒgƒ{ƒ^ƒ“‰Ÿ‚·‘O‚Ì‰Šú‰»
+
 #define P//S2
 #define PS3
 
@@ -135,6 +137,8 @@ int		g_mtu1_over		= 0,
 		g_mtu8_over		= 0,
 		g_mtu8_under	= 0;
 		
+int g_start_switch = 0;
+		
 /*R1350N*/
 int		g_Rate		= 0,
 		g_Angle		= 0,
@@ -157,6 +161,9 @@ float	g_now_x	= 0.00,
 		g_velocity	= 0.00,
 		g_imu_x	= 0.00,
 		g_imu_y	= 0.00;
+		
+/*Å‘å‘¬“x*/
+float  g_max_velocity = 0.00;
 
 /*ps2ƒRƒ“ƒf[ƒ^*/		
 union psdate1{
@@ -207,7 +214,6 @@ int 	getdate1 = 0,
 		getdate3 = 0;
 
 /*ƒvƒƒgƒ^ƒCƒvéŒ¾*/
-void wait( void );
 void timer( void );
 void over_1( void );
 void under_1( void );
@@ -244,10 +250,14 @@ void receive_order_c(char character);
 void receive_order_s(char *word);
 int stop_duty( void );
 void buzzer_cycle( float time );
-int buzzer_stop( time );
 float straight_output_x( void );
 float straight_output_y( void );
 float turn_output( void );
+void initialization( void );
+float present_target_dis( float , float );
+float get_target_degrere( float deviation_x , float deviation_y );
+float get_vertical_distance( float future_degree , float now_degree , float distance );
+float get_target_velocity( float distance_rest , float vertical_distance , float a_up ,  float a_down );
 
 void initial_config( void )
 {
@@ -399,8 +409,7 @@ void main(void)
 			
 	float	target_degree	= 0.00;
 	
-	int		start_switch	= 0,
-			stop_flag		= 0;
+	int		stop_flag		= 0;
 			
 	#ifdef PS2
 		float	nutral_x = 127,					//ƒXƒeƒBƒbƒN’†S‚Ì’l
@@ -429,7 +438,7 @@ void main(void)
 				getdate3.dword = g_controller_receive_3rd;
 
 				if( getdate1.byte.start_sw == 0 ){
-					start_switch = 1;
+					g_start_switch = 1;
 				}
 					
 				//ƒXƒeƒBƒbƒN‚É‚æ‚é‚˜A‚™•ûŒü‚Ìo—ÍŒˆ‚ß
@@ -473,7 +482,7 @@ void main(void)
 					motor_output_b	= 0;
 				}
 				
-				if( start_switch == 0 || getdate1.byte.model_number == 0x41 || getdate1.byte.model_number == 0xff ){
+				if( g_start_switch == 0 || getdate1.byte.model_number == 0x41 || getdate1.byte.model_number == 0xff ){
 					LEFT_TIRE_CW		= 0;
 					LEFT_TIRE_CCW	= 0;
 					RIGHT_TIRE_CW	= 0;
@@ -485,7 +494,7 @@ void main(void)
 					motor_output_b 	= 0;
 				}
 				
-				if( start_switch == 1 && getdate1.byte.model_number == 0x73 ){
+				if( g_start_switch == 1 && getdate1.byte.model_number == 0x73 ){
 					Move( motor_output_l, motor_output_r ,motor_output_b );
 				}
 			#endif
@@ -495,10 +504,16 @@ void main(void)
 				
 				if( ( int )START_SELECT_SW == 8 ){
 					LED_P81 = 1;
-					start_switch = 1;
+					g_start_switch = 1;
 				}
 				
-				if( start_switch == 1 ){
+				#ifndef Debug1
+					if( g_start_switch == 0 ){
+						initialization();
+					}
+				#endif
+				
+				if( g_start_switch == 1 ){
 					//x•ûŒü
 					Motor_output_x = straight_output_x();
 					//y•ûŒü
@@ -519,7 +534,7 @@ void main(void)
 						motor_output_b	= 0;
 					}
 					
-					if( start_switch == 0  || stop_flag >= 100 || CROSS_SW >= 2 ){
+					if( g_start_switch == 0  || stop_flag >= 100 || CROSS_SW >= 2 ){
 						LEFT_TIRE_CW		= 0;
 						LEFT_TIRE_CCW	= 0;
 						RIGHT_TIRE_CW	= 0;
@@ -529,7 +544,7 @@ void main(void)
 					}
 					
 					if( stop_flag >= 100 ){
-						start_switch	= 0;
+						g_start_switch	= 0;
 						LED_P8			= 0;
 						buzzer_cycle( 0.5 );
 					}
@@ -653,7 +668,7 @@ void Rspi_recive_send_line_dualshock(void)	//DualShockƒAƒiƒƒOƒRƒ“ƒgƒ[ƒ‰(ƒAƒiƒ
 {
 	while( RSPI1.SPSR.BIT.SPRF == 1 ){				//óMƒoƒbƒtƒ@‚ªƒtƒ‹‚È‚çƒŠ[ƒh‚µ‚ÄƒNƒŠƒA‚·‚é
 		RSPI1.SPDR.LONG;
-	}	
+	}
 	g_controller_receive_1st = Rspi_send_1(0x00004201);
 	g_controller_receive_2nd = Rspi_send_1(0x00000000);
 	g_controller_receive_3rd = Rspi_send_short_1(0x00);
@@ -1060,15 +1075,17 @@ void input_R1350N(void)
 				g_Angle_f = g_Angle_f - 655.35;
 			}
 			
-		switch( flag ){
-			case 0:
-				if( g_Rate_f != 0.00 ){
-					flag = 1;
-					start_Rate_f = gap_degree( g_Rate_f );
-				}break;
-			case 1:
-				g_Rate_f = ( -1 )*gap_degree( (gap_degree(  g_Rate_f ) - start_Rate_f ) );		
-				break;
+			if( g_start_switch == 1 ){
+				switch( flag ){
+					case 0:
+						if( g_Rate_f != 0.00 ){
+							flag = 1;
+							start_Rate_f = gap_degree( g_Rate_f );
+						}break;
+					case 1:
+						g_Rate_f = ( -1 )*gap_degree( (gap_degree(  g_Rate_f ) - start_Rate_f ) );		
+						break;
+				}
 			}
 		}
 	}
@@ -1295,19 +1312,6 @@ void buzzer_cycle( float time )
 	}
 }
 
-int buzzer_stop( time )
-{
-	static  float count_time = 0.00;
-	
-	count_time += INTERRUPT_TIME;
-
-	if( count_time >= time ){
-		BUZZER = 0;
-		return 1;
-	}
-	return 0;
-}
-
 /******************************************************************************
 *	ƒ^ƒCƒgƒ‹ F ps3ƒRƒ“‚Ì’l‚©‚ço—ÍŒˆ’è
 *	  ŠÖ”–¼ F straight_output_x
@@ -1321,7 +1325,7 @@ float straight_output_x( void )
 	float straight_cal_x = 0.00;
 	
 	straight_cal_x = ( 255.0 - (float)LEFT_STICK_HIGH ) / 255.0;	//¶‚É“|‚µ‚½‚Æ‚«1A‰E‚É“|‚µ‚½‚Æ‚«0
-	straight_cal_x = ( straight_cal_x - 0.5 ) * 2.0;				//¶‚É“|‚µ‚½‚Æ‚«1A‰E‚É“|‚µ‚Æ‚«-1
+	straight_cal_x = ( straight_cal_x - 0.5 ) * 2.0;							//¶‚É“|‚µ‚½‚Æ‚«1A‰E‚É“|‚µ‚Æ‚«-1
 	if( fabs( straight_cal_x ) <= STICK_NO_MOVE_RANGE ){			//—V‚Ñ•”•ª
 		straight_cal_x = 0.0;
 	}
@@ -1343,7 +1347,7 @@ float straight_output_y( void )
 	float straight_cal_y = 0.00;
 	
 	straight_cal_y = ( 255.0 - (float)LEFT_STICK_WIDE ) / 255.0;	//ã‚É“|‚µ‚½‚Æ‚«1A‰º‚É“|‚µ‚½‚Æ‚«0
-	straight_cal_y = ( straight_cal_y - 0.5 ) * 2.0;				//ã‚É“|‚µ‚½‚Æ‚«1A‰º‚É“|‚µ‚½‚Æ‚«-1
+	straight_cal_y = ( straight_cal_y - 0.5 ) * 2.0;							//ã‚É“|‚µ‚½‚Æ‚«1A‰º‚É“|‚µ‚½‚Æ‚«-1
 	if( fabs( straight_cal_y ) <= STICK_NO_MOVE_RANGE ){			//—V‚Ñ•”•ª
 		straight_cal_y = 0.0;
 	}
@@ -1365,15 +1369,130 @@ float turn_output( void )
 	float turn_cal = 0.00;
 
 	turn_cal = ( 255.0 - (float)RIGHT_STICK_WIDE ) / 255.0;	//¶‚É“|‚µ‚½‚Æ‚«1A‰E‚É“|‚µ‚½‚Æ‚«0
-	turn_cal = ( turn_cal - 0.5 ) * 2.0;					//¶‚É“|‚µ‚½‚Æ‚«1A‰E‚É“|‚µ‚Æ‚«-1
-	if( fabs(turn_cal) <= STICK_NO_MOVE_RANGE ){			//—V‚Ñ•”•ª
+	turn_cal = ( turn_cal - 0.5 ) * 2.0;										//¶‚É“|‚µ‚½‚Æ‚«1A‰E‚É“|‚µ‚Æ‚«-1
+	if( fabs(turn_cal) <= STICK_NO_MOVE_RANGE ){				//—V‚Ñ•”•ª
 		turn_cal = 0.0;
 	}
 	turn_cal = ( OPERATE_DEGREE / ( 1.000 / INTERRUPT_TIME ) ) * turn_cal;	//ƒXƒeƒBƒbƒNmax1000ms‚Å‚Ç‚ñ‚¾‚¯Šp“x‚ªi‚Ş‚©
 
 	return( turn_cal );
 }
+
+void initialization( void )
+{
+	g_mtu1_over		= 0;
+	g_mtu1_under	= 0;
+	g_mtu2_over		= 0;
+	g_mtu2_under	= 0;
+	g_mtu8_over		= 0;
+	g_mtu8_under	= 0;
+	MTU1.TCNT	= 0;
+	MTU2.TCNT	= 0;
+	MTU8.TCNT	= 0;
+	g_Rate		= 0;
+	g_Angle		= 0;
+	g_X_acc 	= 0;
+	g_Y_acc 	= 0;
+	g_Z_acc 	= 0;
+	g_Rate_f	= 0.00;
+	g_Angle_f	= 0.00;
+	g_now_x	= 0.00;
+	g_now_y	= 0.00;
+	g_degree	= 0.00;
+}
+
+/******************************************************************************
+*	ƒ^ƒCƒgƒ‹ F ã(x^2)+(y^2)
+*	  ŠÖ”–¼ F present_target_dis
+*	   ˆø”1 F floatŒ^ deviation_x  –Ú•W‚ÌxÀ•W‚ÆŒ»İ‚ÌxÀ•W‚Ì•Î·
+*	   ˆø”2 F floatŒ^ deviation_y  –Ú•W‚ÌyÀ•W‚ÆŒ»İ‚ÌyÀ•W‚Ì•Î·
+*	  ì¬Ò F ¬‹{—z¶
+*	  ì¬“ú F 2014/09/19
+******************************************************************************/
+float present_target_dis( float deviation_x , float deviation_y )
+{
+	return ( sqrt( ( deviation_x ) * ( deviation_x ) + ( deviation_y) * ( deviation_y ) ) );
+}
+
+/******************************************************************************
+*	ƒ^ƒCƒgƒ‹ F –Ú•W‚ÆŒ»İ‚ÌÀ•W‚Ì•Î·‚ÌŠp“x
+*	  ŠÖ”–¼ F get_target_degrere
+*	   ˆø”1 F floatŒ^ deviation_x  –Ú•W‚ÌxÀ•W‚ÆŒ»İ‚ÌxÀ•W‚Ì•Î·
+*	   ˆø”2 F floatŒ^ deviation_y  –Ú•W‚ÌyÀ•W‚ÆŒ»İ‚ÌyÀ•W‚Ì•Î·
+*	  ì¬Ò F ¬‹{—z¶
+*	  ì¬“ú F 2014/09/19
+******************************************************************************/
+float get_target_degrere( float deviation_x , float deviation_y )
+{	
+	float target_degree = 0.00;
 	
+	if( deviation_x !=0 || deviation_x != 0 ){
+		target_degree = gap_degree( atan2f( deviation_y , deviation_x) * ( 180 / M_PI ) );
+	}
+	
+	return ( target_degree );
+}
+
+/******************************************************************************
+*	ƒ^ƒCƒgƒ‹ F ‚’¼‹——£Zo
+*	  ŠÖ”–¼ F get_vertical_distance
+*	   ˆø”1 F floatŒ^ future_degree  Œ»İÀ•W‚©‚ç–Ú•WÀ•W‚Ü‚Å‚ÌŠp“x
+*	   ˆø”2 F floatŒ^ now_degree  Œ»İ‚ÌŠp“x
+*	   ˆø”3 F floatŒ^ distance  À•W‚©‚ç‹——£
+*	  ì¬Ò F ¬‹{—z¶
+*	  ì¬“ú F 2014/09/19
+******************************************************************************/
+float get_vertical_distance( float future_degree , float now_degree , float distance )
+{
+	float	vertical_distance	= 0.00,
+			deviation_degree	= 0.00;
+
+	deviation_degree = gap_degree( future_degree - now_degree );
+	
+	if( deviation_degree > 90 ){
+     	deviation_degree	= 180 - deviation_degree;
+     	vertical_distance	= ( -1 ) * distance * cos( deviation_degree * ( M_PI / 180) );
+  
+	}else if( deviation_degree < -90 ){
+		deviation_degree	= deviation_degree * ( -1 ) - 180;
+   		vertical_distance	= ( -1 ) * distance * cos( deviation_degree * (M_PI / 180 ) );
+	
+	}else{
+		vertical_distance	= distance * cos( deviation_degree * ( M_PI / 180 ) );
+	}
+	return ( vertical_distance );
+}
+
+/******************************************************************************
+*	ƒ^ƒCƒgƒ‹ F ‘äŒ`§Œä
+*	  ŠÖ”–¼ F get_target_velocity
+*	   ˆø”1 F floatŒ^ distance_rest  2æ‚Ìƒ‹[ƒg
+*	   ˆø”2 F floatŒ^ vertical_distance  ‚’¼‹——£
+*	   ˆø”3 F floatŒ^ a_up  ‰Á‘¬“x
+*	   ˆø”4 F floatŒ^ a_down  Œ¸‘¬“x
+*	  ì¬Ò F ¬‹{—z¶
+*	  ì¬“ú F 2014/09/19
+******************************************************************************/
+float get_target_velocity( float distance_rest , float vertical_distance , float a_up ,  float a_down )	//rest—]‚è
+{	
+	static float target_velocity	= 0.00;
+	
+	if( distance_rest >  0.5 *  g_max_velocity * g_max_velocity  / a_down ){	
+		if( target_velocity < g_max_velocity ){
+			target_velocity += ( a_up * INTERRUPT_TIME );					
+												
+		}else{
+			target_velocity = g_max_velocity;
+		}
+	}else if( vertical_distance < 0 ){
+		target_velocity = ( -1 ) * sqrt( fabs( 2 * a_down * distance_rest ) );
+	}else{
+		target_velocity =  sqrt(2 * a_down * distance_rest);
+	}
+	
+	return ( target_velocity );
+}
+
 #ifdef __cplusplus
 void abort(void)
 {
