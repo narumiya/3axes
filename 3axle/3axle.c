@@ -44,12 +44,12 @@ void abort(void);
 /*PD制御*/
 #define ROCK_P_GAIN			5.0
 #define ROCK_D_GAIN			20.0
-#define STRAIGHT_P_GAIN	0.2
+#define STRAIGHT_P_GAIN	0.15
 #define STRAIGHT_D_GAIN	0.0
 /*車体操作*/
-#define MAX_VELOCITY			500.0
+#define MAX_VELOCITY			300.0
 #define MAX_DUTY				80
-#define PWM_PER					30
+#define PWM_PER					80
 #define OPERATE_DEGREE		90	//1000ms Maxでステックを倒したときどれだけ回転するか（度）
 
 /*足回り*/
@@ -471,10 +471,11 @@ void main(void)
 			//垂直距離
 			vertical_distance	= get_vertical_distance( future_degree , g_degree , present_target_distance );
 			//目標速度
-			target_velocity 		= get_target_velocity(  present_target_distance , vertical_distance , 1000 , 500 );
+			target_velocity 		= get_target_velocity(  present_target_distance , vertical_distance , 50 , 500 );
 			
+			//g_start_switch = 1;
 			if( g_start_switch == 1 ){		
-				if( CIRCLE_SW >= 2 ){
+				//if( CIRCLE_SW >= 2 ){
 					//x方向
 					Motor_output_x = straight_output_x();
 					//y方向
@@ -485,7 +486,7 @@ void main(void)
 					
 					motor_output_turn = pd_rock( g_degree , target_degree );
 					
-				}else{
+				/*}else{
 					switch( task ){
 						case 1:
 							straight = pd_straight( g_velocity , target_velocity );
@@ -560,7 +561,7 @@ void main(void)
 							free_output();
 						break;
 					}
-				}
+				}*/
 
 				motor_output_l	= get_motor_output_l( Motor_output_x, Motor_output_y, g_degree ) + motor_output_turn;
 				motor_output_r	= get_motor_output_r( Motor_output_x, Motor_output_y, g_degree ) + motor_output_turn;
@@ -814,6 +815,8 @@ float pd_straight( float present , float target )											//pd 直進 deviation 
 void move_left_tire( float left_duty )
 {		
 	static int i = 0;
+	static float old_duty = 0.00;
+	float left_duty_sub = 0.00;
 	
 	 if( left_duty == FREE ){
 		LEFT_TIRE_CW		= 0;
@@ -846,6 +849,13 @@ void move_left_tire( float left_duty )
 		LEFT_TIRE_CCW 	= 0;
 	}
 	
+	left_duty_sub = fabs( left_duty - old_duty );
+	
+	if( left_duty_sub >= 40 ){
+		left_duty = old_duty;
+	}	
+	old_duty = left_duty;
+	
 	left_duty = Limit_ul( MAX_DUTY , 0 , left_duty );
 	LEFT_TIRE_DUTY = ( ( PWM_PERIOD * left_duty ) /100 );
 }
@@ -853,6 +863,8 @@ void move_left_tire( float left_duty )
 void move_right_tire( float right_duty )
 {		
 	static int i = 0;
+	static float old_duty = 0.00;
+	float right_duty_sub = 0.00;
 	
 	 if( right_duty == FREE ){
 		RIGHT_TIRE_CW	= 0;
@@ -862,7 +874,7 @@ void move_right_tire( float right_duty )
 		RIGHT_TIRE_CW 	= 1;
 		RIGHT_TIRE_CCW 	= 0; 
 	 	if( i == 1 ){
-			 g_right_duty_time = 0;
+			g_right_duty_time = 0;
 		}
 		i = 0;	
 		
@@ -871,7 +883,7 @@ void move_right_tire( float right_duty )
 		RIGHT_TIRE_CCW 	= 1;
 		right_duty *= ( -1 );
 	 	if( i == 0 ){
-			 g_right_duty_time = 0;
+			g_right_duty_time = 0;
 		}
 		i = 1;
 	}
@@ -884,6 +896,14 @@ void move_right_tire( float right_duty )
 		RIGHT_TIRE_CW	= 0;
 		RIGHT_TIRE_CCW 	= 0;
 	}
+	
+	right_duty_sub = fabs( right_duty - old_duty );
+	
+	if( right_duty_sub >= 40 ){
+		right_duty = old_duty;
+	}	
+	old_duty = right_duty;
+	
 	right_duty = Limit_ul( MAX_DUTY , 0 , right_duty );
 	RIGHT_TIRE_DUTY = ( ( PWM_PERIOD * right_duty ) /100 );
 }
@@ -891,6 +911,8 @@ void move_right_tire( float right_duty )
 void move_back_tire( float back_duty )
 {		
 	static int i = 0;
+	static float old_duty = 0.00;
+	float back_duty_sub = 0.00;
 	
 	 if( back_duty == FREE ){
 		BACK_TIRE_CW		= 0;
@@ -900,7 +922,7 @@ void move_back_tire( float back_duty )
 		BACK_TIRE_CW 	= 1;
 		BACK_TIRE_CCW 	= 0; 
 	 	if( i == 1 ){
-			 g_back_duty_time = 0;
+			g_back_duty_time = 0;
 		}
 		i = 0;
 		
@@ -909,7 +931,7 @@ void move_back_tire( float back_duty )
 		BACK_TIRE_CCW 	= 1;
 		back_duty *= ( -1 );
 	 	if( i == 0 ){
-			 g_back_duty_time = 0;
+			g_back_duty_time = 0;
 		}
 		i = 1;
 	}
@@ -922,6 +944,13 @@ void move_back_tire( float back_duty )
 		BACK_TIRE_CW		= 0;
 		BACK_TIRE_CCW 	= 0;
 	}
+	
+	back_duty_sub = fabs( back_duty - old_duty );
+	
+	if( back_duty_sub >= 40 ){
+		back_duty = old_duty;
+	}	
+	old_duty = back_duty;
 	
 	back_duty = Limit_ul( MAX_DUTY , 0 , back_duty );
 	BACK_TIRE_DUTY = ( ( PWM_PERIOD * back_duty ) /100 );
@@ -1053,7 +1082,7 @@ void input_R1350N(void)
 	//unsigned char index;
 	//unsigned int reserved;
 	
-	receive_pac[i] = Receive_uart_c();//受け取る
+	receive_pac[i] = Receive_uart_c_0();//受け取る
 
 	//HEADER値発見
 	if(receive_pac[0] == 0xAA){//ヘッダー値AA
@@ -1314,7 +1343,7 @@ void receive_att( void )
 		buzzer_cycle( 1 );
 	}
 	
-	c = Receive_uart_c_0();//受信データ
+	c = Receive_uart_c();//受信データ
 	
     receive_order_c( c );
 }

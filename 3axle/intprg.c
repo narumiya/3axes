@@ -464,7 +464,7 @@ void Excep_SCI0_ERI0(void){ }
 void Excep_SCI0_RXI0(void)
 {
 	IR(SCI0,RXI0) = 0;
-	receive_att();
+	input_R1350N();
 }
 
 // SCI0 TXI0
@@ -492,7 +492,7 @@ void Excep_SCI2_ERI2(void){ }
 void Excep_SCI2_RXI2(void)
 {
 	IR(SCI2,RXI2) = 0;
-	input_R1350N();
+	receive_att();
 }
 
 // SCI2 TXI2
