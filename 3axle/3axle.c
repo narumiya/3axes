@@ -28,9 +28,6 @@ void abort(void);
 
 #define D//ebug1		//スタートボタン押す前の初期化
 
-#define P//S2
-#define PS3
-
 #define ON							1
 #define OFF							0
 
@@ -44,8 +41,18 @@ void abort(void);
 /*割り込み時間*/
 #define INTERRUPT_TIME 		0.005
 
+/*PD制御*/
+#define ROCK_P_GAIN			5.0
+#define ROCK_D_GAIN			20.0
+#define STRAIGHT_P_GAIN	0.2
+#define STRAIGHT_D_GAIN	0.0
+/*車体操作*/
+#define MAX_VELOCITY			500.0
+#define MAX_DUTY				80
+#define PWM_PER					30
+#define OPERATE_DEGREE		90	//1000ms Maxでステックを倒したときどれだけ回転するか（度）
+
 /*足回り*/
-#define MAX_DUTY				50
 #define LEFT_TIRE_CW			PORT7.DR.BIT.B4
 #define LEFT_TIRE_CCW		PORT7.DR.BIT.B6
 #define LEFT_TIRE_DUTY		MTU4.TGRB
@@ -64,10 +71,6 @@ void abort(void);
 /*足回りが動かないスティックの値の範囲*/
 #define STICK_NO_MOVE_RANGE 			0.2		//±20%
 
-/*車体操作*/
-#define PWM_PER					30
-#define OPERATE_DEGREE		90	//1000ms Maxでステックを倒したときどれだけ回転するか（度）
-
 /*モーター出力*/
 #define	FREE							4536478
 
@@ -77,20 +80,20 @@ void abort(void);
 #define ENCR()						mtu1_count()
 
 /*中心からエンコーダまでの距離*/
-#define CENTER_TO_ENC		237
+#define CENTER_TO_ENC		237.0
 
 #define PULSE						2000
 
 /*エンコーダタイヤ直径*/
-#define ENC_DIAMETER_F 		51
-#define ENC_DIAMETER_L		51
-#define ENC_DIAMETER_R		51
-
-/*PD制御*/
-#define ROCK_P_GAIN			5
-#define ROCK_D_GAIN			20
+#define ENC_DIAMETER_F 		51.0
+#define ENC_DIAMETER_L		51.0
+#define ENC_DIAMETER_R		51.0
 
 #define BUZZER						PORT2.DR.BIT.B2
+
+/*初期座標*/
+#define POSITION_X				0.0
+#define POSITION_Y				0.0
 
 #define END 							'#'									//通信データの終端文字
 #define RECEIVE_STR_COLUMN 32		//1データあたりの最大文字数		例: a123# (6文字)
@@ -163,7 +166,13 @@ float	g_now_x	= 0.00,
 		g_imu_y	= 0.00;
 		
 /*最大速度*/
-float  g_max_velocity = 0.00;
+float  g_max_velocity = MAX_VELOCITY;
+
+typedef struct Target
+{
+	float x_c;
+	float y_c;
+}Target;
 
 /*ps2コンデータ*/		
 union psdate1{
@@ -235,6 +244,7 @@ void input_R1350N(void);
 int checksum_r1350n(char *str);
 float gap_degree( float degree );
 float pd_rock( float present , float target );
+float pd_straight( float present , float target );
 void move_left_tire( float left_duty );
 void move_right_tire( float right_duty );
 void move_back_tire( float back_duty );
@@ -254,10 +264,11 @@ float straight_output_x( void );
 float straight_output_y( void );
 float turn_output( void );
 void initialization( void );
-float present_target_dis( float , float );
+float get_present_target_dis( float , float );
 float get_target_degrere( float deviation_x , float deviation_y );
 float get_vertical_distance( float future_degree , float now_degree , float distance );
 float get_target_velocity( float distance_rest , float vertical_distance , float a_up ,  float a_down );
+void free_output( void );
 
 void initial_config( void )
 {
@@ -275,7 +286,6 @@ void io_config( void )
 {
 	//LED
 	PORT8.DDR.BYTE = 3;
-	
 	/*ブザー*/
 	PORT2.DDR.BIT.B2 = 1;
 }
@@ -407,19 +417,28 @@ void main(void)
 			motor_output_b		= 0.00,
 			motor_output_turn	= 0.00;
 			
-	float	target_degree	= 0.00;
-	
-	int		stop_flag		= 0;
+	float present_target_distance	= 0.00,
+			vertical_distance			= 0.00;
 			
-	#ifdef PS2
-		float	nutral_x = 127,					//スティック中心の値
-				nutral_y = 127;
-		float	pwm_percent			= 60,
-				pwm_percent_turn = 40;
-		union psdate1 getdate1;
-		union psdate2 getdate2;
-		union psdate3 getdate3;
-	#endif
+	float	future_degree	= 0.00,
+			next_degree		= 0.00,
+			target_degree	= 0.00,
+			degree_reverse	= 0.00;
+			
+	float target_velocity	= 0.00;
+	
+	float straight =0.00;
+	
+	int		task			= 1,
+			stop_flag	= 0;
+	
+	Target pattern[ 5 ] =
+		{	{ POSITION_X , POSITION_Y },						//パターン1
+			{ 1000 , 0 },
+			{ 1000 , 1000 },
+			{ 0 , 1000 },		
+			{ 0 , 0 },
+		};
 	
 	initial_config();
 	io_config();
@@ -429,91 +448,33 @@ void main(void)
 			g_count_time = 0;
 			
 			calculate(); //自己位置計算
-			
-			#ifdef PS2
-				//ps2コンデータ取得
-				Rspi_recive_send_line_dualshock();
-				getdate1.dword = g_controller_receive_1st;
-				getdate2.dword = g_controller_receive_2nd;
-				getdate3.dword = g_controller_receive_3rd;
 
-				if( getdate1.byte.start_sw == 0 ){
-					g_start_switch = 1;
-				}
-					
-				//スティックによるｘ、ｙ方向の出力決め
-				//x方向
-				if( getdate3.byte.left_stick_high >=  0xBF){
-					Motor_output_x = ( -1 ) * fabs( ( (float)getdate3.byte.left_stick_high - ( nutral_x + STICK_NO_MOVE_RANGE ) ) * ( pwm_percent / ( nutral_x - STICK_NO_MOVE_RANGE + 1) ));
-				}else if( getdate3.byte.left_stick_high <=  0x3F){
-					Motor_output_x = (( nutral_x - STICK_NO_MOVE_RANGE ) - (float)getdate3.byte.left_stick_high ) * ( pwm_percent / ( nutral_x - STICK_NO_MOVE_RANGE ) );	
-				}else{
-					Motor_output_x = 0.0;
-				}
-				//y方向
-				if( getdate2.byte.left_stick_wide >= 0xBF ){
-					Motor_output_y = ( -1 ) * fabs( ( (float)getdate2.byte.left_stick_wide - ( nutral_y + STICK_NO_MOVE_RANGE ) ) * ( pwm_percent / ( nutral_y - STICK_NO_MOVE_RANGE + 1) ) );
-				}else if( getdate2.byte.left_stick_wide <= 0x3F ){
-					Motor_output_y = ( ( nutral_y - STICK_NO_MOVE_RANGE ) - (float)getdate2.byte.left_stick_wide ) * ( pwm_percent / ( nutral_y - STICK_NO_MOVE_RANGE ) );	
-				}else{
-					Motor_output_y = 0.0;
-				}
-				
-				//車体角度操作
-				if((getdate2.byte.right_stick_wide  > 0x3F) && (getdate2.byte.right_stick_wide < 0xBF)){
-					motor_output_turn = pd_rock(  g_degree , target_degree );
-					//motor_output_turn = 0;
-				}else{
-					target_degree = g_degree;
-					if(getdate2.byte.right_stick_wide >= 0xBF ){
-						motor_output_turn = (-1) * ( (float)getdate2.byte.right_stick_wide - ( nutral_y + STICK_NO_MOVE_RANGE ) ) * ( (pwm_percent_turn) / ( nutral_y - STICK_NO_MOVE_RANGE + 1) );
-					}else if(getdate2.byte.right_stick_wide <= 0x3F ){
-						motor_output_turn = ( ( nutral_y - STICK_NO_MOVE_RANGE ) - (float)getdate2.byte.right_stick_wide ) * ( (pwm_percent_turn) / ( nutral_y - STICK_NO_MOVE_RANGE ) );	
-					}
-				}
-				
-				motor_output_l	= get_motor_output_l( Motor_output_x, Motor_output_y, 0.0 ) + motor_output_turn;
-				motor_output_r	= get_motor_output_r( Motor_output_x, Motor_output_y, 0.0 ) + motor_output_turn;
-				motor_output_b	= get_motor_output_b( Motor_output_x, Motor_output_y, 0.0 ) + motor_output_turn;
-				
-				if( getdate2.byte.cross_sw == 0 ){
-					motor_output_l	= 0;
-					motor_output_r	= 0;
-					motor_output_b	= 0;
-				}
-				
-				if( g_start_switch == 0 || getdate1.byte.model_number == 0x41 || getdate1.byte.model_number == 0xff ){
-					LEFT_TIRE_CW		= 0;
-					LEFT_TIRE_CCW	= 0;
-					RIGHT_TIRE_CW	= 0;
-					RIGHT_TIRE_CCW	= 0;
-					BACK_TIRE_CW		= 0;
-					BACK_TIRE_CCW	= 0;
-					motor_output_l		= 0;
-					motor_output_r 		= 0;
-					motor_output_b 	= 0;
-				}
-				
-				if( g_start_switch == 1 && getdate1.byte.model_number == 0x73 ){
-					Move( motor_output_l, motor_output_r ,motor_output_b );
+			stop_flag = stop_duty();
+			
+			if( ( int )START_SELECT_SW == 8 ){
+				LED_P81 = 1;
+				g_start_switch = 1;
+			}
+			
+			#ifndef Debug1
+				if( g_start_switch == 0 ){
+					initialization();
 				}
 			#endif
 			
-			#ifdef PS3
-				stop_flag = stop_duty();
-				
-				if( ( int )START_SELECT_SW == 8 ){
-					LED_P81 = 1;
-					g_start_switch = 1;
-				}
-				
-				#ifndef Debug1
-					if( g_start_switch == 0 ){
-						initialization();
-					}
-				#endif
-				
-				if( g_start_switch == 1 ){
+			//現在地から目標座標の角度
+			future_degree	= get_target_degrere( pattern[ task ].x_c - g_now_x  , pattern[ task ].y_c - g_now_y );
+			//今の目標と次の目標の角度
+			next_degree		= get_target_degrere( pattern[ task + 1 ].x_c - pattern[ task ].x_c , pattern[ task + 1 ].y_c - pattern[ task ].y_c );
+			//現在座標から目標座標までの距離
+			present_target_distance = get_present_target_dis( pattern[ task ].x_c - g_now_x  , pattern[ task ].y_c - g_now_y );
+			//垂直距離
+			vertical_distance	= get_vertical_distance( future_degree , g_degree , present_target_distance );
+			//目標速度
+			target_velocity 		= get_target_velocity(  present_target_distance , vertical_distance , 1000 , 500 );
+			
+			if( g_start_switch == 1 ){		
+				if( CIRCLE_SW >= 2 ){
 					//x方向
 					Motor_output_x = straight_output_x();
 					//y方向
@@ -523,39 +484,107 @@ void main(void)
 					target_degree = gap_degree( target_degree );
 					
 					motor_output_turn = pd_rock( g_degree , target_degree );
+					
+				}else{
+					switch( task ){
+						case 1:
+							straight = pd_straight( g_velocity , target_velocity );
+							motor_output_turn	= pd_rock( g_degree , future_degree );
+							
+							if( straight < 0 ){
+								degree_reverse = 180.0;
+							}else{
+								degree_reverse = 0.00;
+							}
+							Motor_output_x = fabs( straight ) * cos( D_TO_R( gap_degree( target_degree + degree_reverse ) ) );
+							Motor_output_y = fabs( straight ) * sin( D_TO_R( gap_degree( target_degree + degree_reverse ) ) );
+							
+							if( vertical_distance <= 100 ){
+								task = 2;
+							}break;
+						
+						case 2:
+							straight = pd_straight( g_velocity , target_velocity );
+							motor_output_turn = pd_rock( g_degree , future_degree );
+							
+							if( straight < 0 ){
+								degree_reverse = 180.0;
+							}else{
+								degree_reverse = 0.00;
+							}
+							Motor_output_x = fabs( straight ) * cos( D_TO_R( gap_degree( target_degree + degree_reverse ) ) );
+							Motor_output_y = fabs( straight ) * sin( D_TO_R( gap_degree( target_degree + degree_reverse ) ) );
+							
+							if( vertical_distance <= 100 ){
+								task = 3;								
+							}break;
+							
+						case 3:
+							straight = pd_straight( g_velocity , target_velocity );
+							motor_output_turn = pd_rock( g_degree , future_degree );
+							
+							if( straight < 0 ){
+								degree_reverse = 180.0;
+							}else{
+								degree_reverse = 0.00;
+							}
+							Motor_output_x = fabs( straight ) * cos( D_TO_R( gap_degree( target_degree + degree_reverse ) ) );
+							Motor_output_y = fabs( straight ) * sin( D_TO_R( gap_degree( target_degree + degree_reverse ) ) );
+							
+							if( vertical_distance <= 100 ){
+								task = 4;
+							}break;
+							
+						case 4:
+							straight = pd_straight( g_velocity , target_velocity );
+							motor_output_turn = pd_rock( g_degree , future_degree );
+							
+							if( straight < 0 ){
+								degree_reverse = 180.0;
+							}else{
+								degree_reverse = 0.00;
+							}
+							Motor_output_x = fabs( straight ) * cos( D_TO_R( gap_degree( target_degree + degree_reverse ) ) );
+							Motor_output_y = fabs( straight ) * sin( D_TO_R( gap_degree( target_degree + degree_reverse ) ) );							
+							
+							if( vertical_distance <= 100 ){
+								task = 5;
+							}break;
+						break;
+						
+						case 5:
+							free_output();
+						break;
 
-					motor_output_l	= get_motor_output_l( Motor_output_x, Motor_output_y, g_degree ) + motor_output_turn;
-					motor_output_r	= get_motor_output_r( Motor_output_x, Motor_output_y, g_degree ) + motor_output_turn;
-					motor_output_b	= get_motor_output_b( Motor_output_x, Motor_output_y, g_degree ) + motor_output_turn;
-				
-					if( CROSS_SW >= 2 || stop_flag >= 100 ){
-						motor_output_l	= 0;
-						motor_output_r	= 0;
-						motor_output_b	= 0;
+						default :
+							free_output();
+						break;
 					}
-					
-					if( g_start_switch == 0  || stop_flag >= 100 || CROSS_SW >= 2 ){
-						LEFT_TIRE_CW		= 0;
-						LEFT_TIRE_CCW	= 0;
-						RIGHT_TIRE_CW	= 0;
-						RIGHT_TIRE_CCW	= 0;
-						BACK_TIRE_CW		= 0;
-						BACK_TIRE_CCW	= 0;
-					}
-					
-					if( stop_flag >= 100 ){
-						g_start_switch	= 0;
-						LED_P8			= 0;
-						buzzer_cycle( 0.5 );
-					}
-					
-					Move( motor_output_l , motor_output_r , motor_output_b );
 				}
-			#endif
+
+				motor_output_l	= get_motor_output_l( Motor_output_x, Motor_output_y, g_degree ) + motor_output_turn;
+				motor_output_r	= get_motor_output_r( Motor_output_x, Motor_output_y, g_degree ) + motor_output_turn;
+				motor_output_b	= get_motor_output_b( Motor_output_x, Motor_output_y, g_degree ) + motor_output_turn;
+				
+				if( g_start_switch == 0  || stop_flag >= 100 || CROSS_SW >= 2 ){
+					motor_output_l	= 0;
+					motor_output_r	= 0;
+					motor_output_b	= 0;
+					free_output();
+				}
+				
+				if( stop_flag >= 100 ){
+					g_start_switch	= 0;
+					LED_P8				= 0;
+					buzzer_cycle( 0.5 );
+				}
+				
+				Move( motor_output_l , motor_output_r , motor_output_b );
+			}
 			
 			if( g_time >= 0.1 ){
 				g_time = 0;
-				//sprintf(str,"%x\n\r", getdate1.byte.model_number);
+				//sprintf(str,"%d \n\r", stop_flag);
 				//sprintf(str,"%.4f,%.4f,%.4f,%.4f,%.4f\n\r", g_now_x , g_now_y , g_x_c ,g_y_c , g_degree );
 				//sprintf(str,"%.4f ,%.4f \n\r", g_degree , g_Rate_f );
 				//sprintf(str,"%.4f ,\n\r", target_degree );
@@ -566,7 +595,7 @@ void main(void)
 				//sprintf(str,"%.4f %.4f, %.4f,\n\r", ENCF() , ENCL() ,ENCR() );
 				//sprintf( str,"%.4f,%f,%d,%d,%d,\n\r",g_Rate_f,g_Angle_f,g_X_acc,g_Y_acc,g_Z_acc );
 				//sprintf(str,"%.4f, \n\r",  motor_output_turn);
-				//sprintf( str,"%.4f, %.4f , %.4f, %.4f, %.4f\n\r", motor_output_l, motor_output_r, motor_output_b , g_degree , target_degree);
+				//sprintf( str,"%.4f, %.4f, %.4f , %.4f, %.4f, %.4f, %.4f\n\r", motor_output_l, motor_output_r, motor_output_b , g_velocity , target_velocity, Motor_output_x , Motor_output_y );
 				//transmit( str );
 			}
 		}
@@ -757,6 +786,24 @@ float pd_rock( float present , float target )					//pd 直進中のロック
 	
 	output = ( ROCK_P_GAIN * deviation ) + ( ROCK_D_GAIN * ( deviation - old_deviation ) );
 
+	output = Limit_ul( 100 , -100 , output );
+	
+	old_deviation = deviation;
+	
+	return output;
+}
+
+float pd_straight( float present , float target )											//pd 直進 deviation 偏差
+{							
+	float 	output		= 0.00,
+			deviation	= 0.00;																		//deviation 偏差
+			
+	static float old_deviation = 0.00;
+	
+	deviation = target - present;
+	
+	output = ( STRAIGHT_P_GAIN * deviation ) + ( STRAIGHT_D_GAIN * ( deviation - old_deviation ) );
+	
 	output = Limit_ul( 100 , -100 , output );
 	
 	old_deviation = deviation;
@@ -1075,6 +1122,10 @@ void input_R1350N(void)
 				g_Angle_f = g_Angle_f - 655.35;
 			}
 			
+			#ifdef Debug1
+				g_start_switch = 1;
+			#endif
+			
 			if( g_start_switch == 1 ){
 				switch( flag ){
 					case 0:
@@ -1122,8 +1173,8 @@ int checksum_r1350n(char *str)
 }
 
 //グローバル変数からの数値データの取出し	要素番号での読み書きがめんどくさい人は使えば？
-float pick_out_atoz_value(char character){
-    
+float pick_out_atoz_value(char character)
+{    
     int box = 0;
     
     if( (character >= 'a') && (character <= 'z') ){
@@ -1138,8 +1189,8 @@ float pick_out_atoz_value(char character){
 }
 
 //グローバル変数への数値データの書き込み	要素番号での読み書きがめんどくさい人は使えば？
-void throw_away_atoz_value(char character, float write){
-    
+void throw_away_atoz_value(char character, float write)
+{    
     int box = 0;
     
     if( (character >= 'a') && (character <= 'z') ){
@@ -1409,7 +1460,7 @@ void initialization( void )
 *	  作成者 ： 成宮陽生
 *	  作成日 ： 2014/09/19
 ******************************************************************************/
-float present_target_dis( float deviation_x , float deviation_y )
+float get_present_target_dis( float deviation_x , float deviation_y )
 {
 	return ( sqrt( ( deviation_x ) * ( deviation_x ) + ( deviation_y) * ( deviation_y ) ) );
 }
@@ -1479,7 +1530,7 @@ float get_target_velocity( float distance_rest , float vertical_distance , float
 	
 	if( distance_rest >  0.5 *  g_max_velocity * g_max_velocity  / a_down ){	
 		if( target_velocity < g_max_velocity ){
-			target_velocity += ( a_up * INTERRUPT_TIME );					
+			target_velocity += ( a_up * INTERRUPT_TIME );
 												
 		}else{
 			target_velocity = g_max_velocity;
@@ -1487,10 +1538,20 @@ float get_target_velocity( float distance_rest , float vertical_distance , float
 	}else if( vertical_distance < 0 ){
 		target_velocity = ( -1 ) * sqrt( fabs( 2 * a_down * distance_rest ) );
 	}else{
-		target_velocity =  sqrt(2 * a_down * distance_rest);
+		target_velocity =  sqrt( fabs( 2 * a_down * distance_rest ) );
 	}
 	
 	return ( target_velocity );
+}
+
+void free_output( void )
+{
+	LEFT_TIRE_CW		= 0;
+	LEFT_TIRE_CCW	= 0;
+	RIGHT_TIRE_CW	= 0;
+	RIGHT_TIRE_CCW	= 0;
+	BACK_TIRE_CW		= 0;
+	BACK_TIRE_CCW	= 0;
 }
 
 #ifdef __cplusplus
