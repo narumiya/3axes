@@ -48,7 +48,7 @@ void abort(void);
 #define STRAIGHT_D_GAIN	0.0
 /*車体操作*/
 #define MAX_VELOCITY			300.0
-#define MAX_DUTY				80
+#define MAX_DUTY				30
 #define PWM_PER					80
 #define OPERATE_DEGREE		90	//1000ms Maxでステックを倒したときどれだけ回転するか（度）
 
@@ -251,6 +251,8 @@ void move_back_tire( float back_duty );
 float get_motor_output_l(float motor_output_x,float motor_output_y,float degree_now);
 float get_motor_output_r(float motor_output_x,float motor_output_y,float degree_now);
 float get_motor_output_b(float motor_output_x,float motor_output_y,float degree_now);
+float get_motor_output_x( float straight , float target_degree );
+float get_motor_output_y( float straight , float target_degree );
 void Move( float left_duty , float right_duty , float back_duty );
 float pick_out_atoz_value(char character);
 void throw_away_atoz_value(char character, float write);
@@ -475,7 +477,7 @@ void main(void)
 			
 			//g_start_switch = 1;
 			if( g_start_switch == 1 ){		
-				//if( CIRCLE_SW >= 2 ){
+				/*//if( CIRCLE_SW >= 2 ){
 					//x方向
 					Motor_output_x = straight_output_x();
 					//y方向
@@ -486,72 +488,63 @@ void main(void)
 					
 					motor_output_turn = pd_rock( g_degree , target_degree );
 					
-				/*}else{
+				}else{*/
 					switch( task ){
 						case 1:
 							straight = pd_straight( g_velocity , target_velocity );
 							motor_output_turn	= pd_rock( g_degree , future_degree );
-							
-							if( straight < 0 ){
-								degree_reverse = 180.0;
-							}else{
-								degree_reverse = 0.00;
-							}
-							Motor_output_x = fabs( straight ) * cos( D_TO_R( gap_degree( target_degree + degree_reverse ) ) );
-							Motor_output_y = fabs( straight ) * sin( D_TO_R( gap_degree( target_degree + degree_reverse ) ) );
+
+							Motor_output_x = get_motor_output_x( straight , future_degree );
+							Motor_output_y = get_motor_output_y( straight , future_degree );
 							
 							if( vertical_distance <= 100 ){
-								task = 2;
+								motor_output_turn	= pd_rock( g_degree , next_degree );
+								if( g_degree <= next_degree + 1 && g_degree >= next_degree - 1){
+									task = 2;
+								}
 							}break;
 						
 						case 2:
 							straight = pd_straight( g_velocity , target_velocity );
 							motor_output_turn = pd_rock( g_degree , future_degree );
 							
-							if( straight < 0 ){
-								degree_reverse = 180.0;
-							}else{
-								degree_reverse = 0.00;
-							}
-							Motor_output_x = fabs( straight ) * cos( D_TO_R( gap_degree( target_degree + degree_reverse ) ) );
-							Motor_output_y = fabs( straight ) * sin( D_TO_R( gap_degree( target_degree + degree_reverse ) ) );
+							Motor_output_x = get_motor_output_x( straight , future_degree );
+							Motor_output_y = get_motor_output_y( straight , future_degree );
 							
 							if( vertical_distance <= 100 ){
-								task = 3;								
+								motor_output_turn	= pd_rock( g_degree , next_degree );
+								if( g_degree <= next_degree + 1 && g_degree >= next_degree - 1){
+									task = 3;
+								}
 							}break;
 							
 						case 3:
 							straight = pd_straight( g_velocity , target_velocity );
 							motor_output_turn = pd_rock( g_degree , future_degree );
 							
-							if( straight < 0 ){
-								degree_reverse = 180.0;
-							}else{
-								degree_reverse = 0.00;
-							}
-							Motor_output_x = fabs( straight ) * cos( D_TO_R( gap_degree( target_degree + degree_reverse ) ) );
-							Motor_output_y = fabs( straight ) * sin( D_TO_R( gap_degree( target_degree + degree_reverse ) ) );
+							Motor_output_x = get_motor_output_x( straight , future_degree );
+							Motor_output_y = get_motor_output_y( straight , future_degree );
 							
 							if( vertical_distance <= 100 ){
-								task = 4;
+								motor_output_turn	= pd_rock( g_degree , next_degree );
+								if( g_degree <= next_degree + 1 && g_degree >= next_degree - 1){
+									task = 4;
+								}
 							}break;
 							
 						case 4:
 							straight = pd_straight( g_velocity , target_velocity );
 							motor_output_turn = pd_rock( g_degree , future_degree );
 							
-							if( straight < 0 ){
-								degree_reverse = 180.0;
-							}else{
-								degree_reverse = 0.00;
-							}
-							Motor_output_x = fabs( straight ) * cos( D_TO_R( gap_degree( target_degree + degree_reverse ) ) );
-							Motor_output_y = fabs( straight ) * sin( D_TO_R( gap_degree( target_degree + degree_reverse ) ) );							
+							Motor_output_x = get_motor_output_x( straight , future_degree );
+							Motor_output_y = get_motor_output_y( straight , future_degree );
 							
 							if( vertical_distance <= 100 ){
-								task = 5;
+								motor_output_turn	= pd_rock( g_degree , next_degree );
+								if( g_degree <= next_degree + 1 && g_degree >= next_degree - 1){
+									task = 5;
+								}
 							}break;
-						break;
 						
 						case 5:
 							free_output();
@@ -561,7 +554,7 @@ void main(void)
 							free_output();
 						break;
 					}
-				}*/
+				//}
 
 				motor_output_l	= get_motor_output_l( Motor_output_x, Motor_output_y, g_degree ) + motor_output_turn;
 				motor_output_r	= get_motor_output_r( Motor_output_x, Motor_output_y, g_degree ) + motor_output_turn;
@@ -1582,6 +1575,39 @@ void free_output( void )
 	BACK_TIRE_CW		= 0;
 	BACK_TIRE_CCW	= 0;
 }
+
+float get_motor_output_x( float straight , float target_degree )
+{
+	float	degree_reverse	= 0.00,
+			Motor_output_x	= 0.00;
+
+	if( straight < 0 ){
+		degree_reverse = 180.0;
+	}else{
+		degree_reverse = 0.00;
+	}
+	
+	Motor_output_x = fabs( straight ) * cos( D_TO_R( gap_degree( target_degree + degree_reverse ) ) );
+
+	return( Motor_output_x );
+}
+
+float get_motor_output_y( float straight , float target_degree )
+{
+	float	degree_reverse	= 0.00,
+			Motor_output_y	= 0.00;
+
+	if( straight < 0 ){
+		degree_reverse = 180.0;
+	}else{
+		degree_reverse = 0.00;
+	}
+	
+	Motor_output_y = fabs( straight ) * sin( D_TO_R( gap_degree( target_degree + degree_reverse ) ) );
+
+	return( Motor_output_y );
+}
+
 
 #ifdef __cplusplus
 void abort(void)
