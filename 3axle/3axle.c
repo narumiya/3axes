@@ -424,8 +424,7 @@ void main(void)
 			
 	float	future_degree	= 0.00,
 			next_degree		= 0.00,
-			target_degree	= 0.00,
-			degree_reverse	= 0.00;
+			target_degree	= 0.00;
 			
 	float target_velocity	= 0.00;
 	
@@ -1576,6 +1575,14 @@ void free_output( void )
 	BACK_TIRE_CCW	= 0;
 }
 
+/******************************************************************************
+*	タイトル ： x方向出力決定
+*	  関数名 ： get_motor_output_x
+*	   引数1 ： float型 straight  直進方向の出力
+*	   引数2 ： float型 target_degree  現在座標と目標座標の角度
+*	  作成者 ： 成宮陽生
+*	  作成日 ： 2014/09/22
+******************************************************************************/
 float get_motor_output_x( float straight , float target_degree )
 {
 	float	degree_reverse	= 0.00,
@@ -1592,6 +1599,14 @@ float get_motor_output_x( float straight , float target_degree )
 	return( Motor_output_x );
 }
 
+/******************************************************************************
+*	タイトル ： y方向出力決定
+*	  関数名 ： get_motor_output_y
+*	   引数1 ： float型 straight  直進方向の出力
+*	   引数2 ： float型 target_degree  現在座標と目標座標の角度
+*	  作成者 ： 成宮陽生
+*	  作成日 ： 2014/09/22
+******************************************************************************/
 float get_motor_output_y( float straight , float target_degree )
 {
 	float	degree_reverse	= 0.00,
