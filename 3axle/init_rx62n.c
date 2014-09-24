@@ -27,7 +27,6 @@ void init_CMT0(void)
 	CMT0.CMCOR = 375;							//48000000/128/1000 = 375
 	CMT0.CMCNT = 0;
 	CMT0.CMCR.BIT.CMIE = 1;
-	CMT.CMSTR0.BIT.STR0 = 1;
 	
 	IEN(CMT0,CMI0) = 1;							//Š„‚èž‚Ý‹–‰Â
 	IPR(CMT0,CMI0) = 14;						//Š„‚èž‚Ý—Dæ“x

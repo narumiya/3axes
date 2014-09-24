@@ -27,9 +27,12 @@ void abort(void);
 #include "iodefine.h"
 
 #define D//ebug1		//スタートボタン押す前の初期化
+#define Debug2			//コントローラーなし
 
 #define ON							1
 #define OFF							0
+
+#define INTERRUPT_START	CMT.CMSTR0.BIT.STR0 = 1;//カウント開始
 
 #define PWM_PERIOD			((48000000/1)/100000)
 
@@ -44,11 +47,11 @@ void abort(void);
 /*PD制御*/
 #define ROCK_P_GAIN			5.0
 #define ROCK_D_GAIN			20.0
-#define STRAIGHT_P_GAIN	0.15
+#define STRAIGHT_P_GAIN	0.2
 #define STRAIGHT_D_GAIN	0.0
 /*車体操作*/
-#define MAX_VELOCITY			300.0
-#define MAX_DUTY				30
+#define MAX_VELOCITY			400.0
+#define MAX_DUTY				35
 #define PWM_PER					80
 #define OPERATE_DEGREE		90	//1000ms Maxでステックを倒したときどれだけ回転するか（度）
 
@@ -92,8 +95,8 @@ void abort(void);
 #define BUZZER						PORT2.DR.BIT.B2
 
 /*初期座標*/
-#define POSITION_X				0.0
-#define POSITION_Y				0.0
+#define POSITION_X				0.00
+#define POSITION_Y				0.00
 
 #define END 							'#'									//通信データの終端文字
 #define RECEIVE_STR_COLUMN 32		//1データあたりの最大文字数		例: a123# (6文字)
@@ -130,7 +133,8 @@ float	g_count_time			= 0.00,
 		g_left_duty_time	= 0.00,
 		g_right_duty_time	= 0.00,
 		g_back_duty_time	= 0.00,
-		g_time					= 0.00;
+		g_time					= 0.00,
+		g_stop_time			= 0.00;
 
 /*overfloaw underfloaw カウント*/
 int		g_mtu1_over		= 0, 
@@ -282,6 +286,7 @@ void initial_config( void )
 	init_SCI2();
 	init_Rspi_dualshock();
 	init_encorder();
+	INTERRUPT_START
 }
 
 void io_config( void )
@@ -428,17 +433,19 @@ void main(void)
 			
 	float target_velocity	= 0.00;
 	
-	float straight =0.00;
+	float straight	=	0.00;
 	
 	int		task			= 1,
+			task_box	= 0,
 			stop_flag	= 0;
 	
-	Target pattern[ 5 ] =
+	Target pattern[ 6 ] =
 		{	{ POSITION_X , POSITION_Y },						//パターン1
 			{ 1000 , 0 },
 			{ 1000 , 1000 },
 			{ 0 , 1000 },		
 			{ 0 , 0 },
+			{ 1000 , 0 },
 		};
 	
 	initial_config();
@@ -450,7 +457,9 @@ void main(void)
 			
 			calculate(); //自己位置計算
 
-			stop_flag = stop_duty();
+			#ifndef Debug2
+				stop_flag = stop_duty();
+			#endif
 			
 			if( ( int )START_SELECT_SW == 8 ){
 				LED_P81 = 1;
@@ -463,18 +472,24 @@ void main(void)
 				}
 			#endif
 			
+			#ifdef Debug2
+				if( g_stop_time >= 6.00 ){
+					g_start_switch = 1;
+					BUZZER = 0;
+				}else{
+					buzzer_cycle( 1.00 );
+				}
+			#endif
+			
 			//現在地から目標座標の角度
-			future_degree	= get_target_degrere( pattern[ task ].x_c - g_now_x  , pattern[ task ].y_c - g_now_y );
-			//今の目標と次の目標の角度
+			future_degree	= get_target_degrere( pattern[ task ].x_c - g_now_x , pattern[ task ].y_c - g_now_y );
+			//今の目標から次の目標の角度
 			next_degree		= get_target_degrere( pattern[ task + 1 ].x_c - pattern[ task ].x_c , pattern[ task + 1 ].y_c - pattern[ task ].y_c );
 			//現在座標から目標座標までの距離
-			present_target_distance = get_present_target_dis( pattern[ task ].x_c - g_now_x  , pattern[ task ].y_c - g_now_y );
+			present_target_distance = get_present_target_dis( pattern[ task ].x_c - g_now_x , pattern[ task ].y_c - g_now_y );
 			//垂直距離
 			vertical_distance	= get_vertical_distance( future_degree , g_degree , present_target_distance );
-			//目標速度
-			target_velocity 		= get_target_velocity(  present_target_distance , vertical_distance , 50 , 500 );
-			
-			//g_start_switch = 1;
+		
 			if( g_start_switch == 1 ){		
 				/*//if( CIRCLE_SW >= 2 ){
 					//x方向
@@ -488,77 +503,106 @@ void main(void)
 					motor_output_turn = pd_rock( g_degree , target_degree );
 					
 				}else{*/
-					switch( task ){
+					//目標速度
+					target_velocity 	= get_target_velocity( present_target_distance , vertical_distance , 50 , 500 );
+					straight				= pd_straight( g_velocity , target_velocity );
+					Motor_output_x	= get_motor_output_x( straight , g_degree );
+					Motor_output_y	= get_motor_output_y( straight , g_degree );
+					
+					/*switch( task ){
 						case 1:
-							straight = pd_straight( g_velocity , target_velocity );
-							motor_output_turn	= pd_rock( g_degree , future_degree );
-
-							Motor_output_x = get_motor_output_x( straight , future_degree );
-							Motor_output_y = get_motor_output_y( straight , future_degree );
-							
-							if( vertical_distance <= 100 ){
-								motor_output_turn	= pd_rock( g_degree , next_degree );
-								if( g_degree <= next_degree + 1 && g_degree >= next_degree - 1){
-									task = 2;
+							if( vertical_distance >= -10 && vertical_distance <= 50 ){
+								motor_output_turn	= pd_rock( g_degree , next_degree );	
+								
+								if( g_degree <= next_degree + 2 && g_degree >= next_degree - 2 ){
+									task_box ++;
+									if( task_box >= 5 ){
+										task_box	= 0;
+										task			= 2;
+									}
 								}
+							}else{
+								motor_output_turn	= pd_rock( g_degree , future_degree );
 							}break;
 						
 						case 2:
-							straight = pd_straight( g_velocity , target_velocity );
-							motor_output_turn = pd_rock( g_degree , future_degree );
-							
-							Motor_output_x = get_motor_output_x( straight , future_degree );
-							Motor_output_y = get_motor_output_y( straight , future_degree );
-							
-							if( vertical_distance <= 100 ){
-								motor_output_turn	= pd_rock( g_degree , next_degree );
+							if( vertical_distance >= -10 && vertical_distance <= 50 ){
+								motor_output_turn	= pd_rock( g_degree , next_degree );	
+								
 								if( g_degree <= next_degree + 1 && g_degree >= next_degree - 1){
-									task = 3;
+									task_box ++;
+									if( task_box >= 10 ){
+										task_box	= 0;
+										task			= 3;
+									}
 								}
+							}else{
+								motor_output_turn	= pd_rock( g_degree , future_degree );
 							}break;
 							
 						case 3:
-							straight = pd_straight( g_velocity , target_velocity );
-							motor_output_turn = pd_rock( g_degree , future_degree );
-							
-							Motor_output_x = get_motor_output_x( straight , future_degree );
-							Motor_output_y = get_motor_output_y( straight , future_degree );
-							
-							if( vertical_distance <= 100 ){
-								motor_output_turn	= pd_rock( g_degree , next_degree );
+							if( vertical_distance >= -10 && vertical_distance <= 50 ){
+								motor_output_turn	= pd_rock( g_degree , next_degree );	
+								
 								if( g_degree <= next_degree + 1 && g_degree >= next_degree - 1){
-									task = 4;
+									task_box ++;
+									if( task_box >= 10 ){
+										task_box	= 0;
+										task			= 4;
+									}
 								}
+							}else{
+								motor_output_turn	= pd_rock( g_degree , future_degree );
 							}break;
 							
 						case 4:
-							straight = pd_straight( g_velocity , target_velocity );
-							motor_output_turn = pd_rock( g_degree , future_degree );
-							
-							Motor_output_x = get_motor_output_x( straight , future_degree );
-							Motor_output_y = get_motor_output_y( straight , future_degree );
-							
-							if( vertical_distance <= 100 ){
-								motor_output_turn	= pd_rock( g_degree , next_degree );
+							if( vertical_distance >= -10 && vertical_distance <= 50 ){
+								motor_output_turn	= pd_rock( g_degree , next_degree );	
+								
 								if( g_degree <= next_degree + 1 && g_degree >= next_degree - 1){
-									task = 5;
+									task_box ++;
+									if( task_box >= 10 ){
+										task_box	= 0;
+										task			= 5;
+									}
 								}
+							}else{
+								motor_output_turn	= pd_rock( g_degree , future_degree );
 							}break;
 						
 						case 5:
 							free_output();
 						break;
 
-						default :
+						default:
 							free_output();
 						break;
-					}
+					}*/
 				//}
-
-				motor_output_l	= get_motor_output_l( Motor_output_x, Motor_output_y, g_degree ) + motor_output_turn;
-				motor_output_r	= get_motor_output_r( Motor_output_x, Motor_output_y, g_degree ) + motor_output_turn;
-				motor_output_b	= get_motor_output_b( Motor_output_x, Motor_output_y, g_degree ) + motor_output_turn;
 				
+				if( vertical_distance >= 0 && vertical_distance <= 50 ){
+					task ++;
+				}
+					//motor_output_turn	= pd_rock( g_degree , next_degree );	
+					
+				/*	motor_output_l	= motor_output_turn;
+					motor_output_r	= motor_output_turn;
+					motor_output_b	= motor_output_turn;
+					
+					if( g_degree <= next_degree + 1 && g_degree >= next_degree - 1){
+						task_box ++;
+						if( task_box >= 10 ){
+							task_box = 0;
+							task ++;
+						}
+					}
+				}else{*/
+					motor_output_turn	= pd_rock( g_degree , 0 );
+					motor_output_l	= get_motor_output_l( Motor_output_x, Motor_output_y, g_degree ) + motor_output_turn;
+					motor_output_r	= get_motor_output_r( Motor_output_x, Motor_output_y, g_degree ) + motor_output_turn;
+					motor_output_b	= get_motor_output_b( Motor_output_x, Motor_output_y, g_degree ) + motor_output_turn;
+			//	}
+
 				if( g_start_switch == 0  || stop_flag >= 100 || CROSS_SW >= 2 ){
 					motor_output_l	= 0;
 					motor_output_r	= 0;
@@ -572,12 +616,20 @@ void main(void)
 					buzzer_cycle( 0.5 );
 				}
 				
+				if( task >= 5 ){
+					free_output();
+				}
+				
 				Move( motor_output_l , motor_output_r , motor_output_b );
-			}
+			}//start_switch
 			
-			if( g_time >= 0.1 ){
+			if( g_time >= 0.01 ){
 				g_time = 0;
-				//sprintf(str,"%d \n\r", stop_flag);
+				//sprintf(str,"%d \n\r", task );
+				//sprintf(str,"%d, %.4f, %.4f, %.4f,\n\r", task, g_now_x, g_now_y, g_degree );
+				//sprintf(str,"%d, %.4f, %.4f, %.4f, %.4f, %.4f\n\r", task, g_now_x, g_now_y, g_degree, next_degree, future_degree );
+				//sprintf(str,"%d, %f \n\r", g_start_switch ,  g_stop_time );
+				//sprintf(str,"%d \n\r", stop_flag );
 				//sprintf(str,"%.4f,%.4f,%.4f,%.4f,%.4f\n\r", g_now_x , g_now_y , g_x_c ,g_y_c , g_degree );
 				//sprintf(str,"%.4f ,%.4f \n\r", g_degree , g_Rate_f );
 				//sprintf(str,"%.4f ,\n\r", target_degree );
@@ -588,12 +640,12 @@ void main(void)
 				//sprintf(str,"%.4f %.4f, %.4f,\n\r", ENCF() , ENCL() ,ENCR() );
 				//sprintf( str,"%.4f,%f,%d,%d,%d,\n\r",g_Rate_f,g_Angle_f,g_X_acc,g_Y_acc,g_Z_acc );
 				//sprintf(str,"%.4f, \n\r",  motor_output_turn);
-				//sprintf( str,"%.4f, %.4f, %.4f , %.4f, %.4f, %.4f, %.4f\n\r", motor_output_l, motor_output_r, motor_output_b , g_velocity , target_velocity, Motor_output_x , Motor_output_y );
-				//transmit( str );
+				sprintf( str,"%.4f, %.4f, %.4f , %.4f, %.4f, %.4f, %.4f\n\r", motor_output_l, motor_output_r, motor_output_b , g_velocity , target_velocity, Motor_output_x , Motor_output_y );
+				transmit( str );
 			}
-		}
-	}
-}
+		}//INTERRUPT_TIME
+	}//while(1)
+}//main
 
 void timer(void)
 {
@@ -603,6 +655,7 @@ void timer(void)
 	g_right_duty_time	+= 0.001;
 	g_back_duty_time	+= 0.001;
 	g_time					+= 0.001;
+	g_stop_time			+= 0.001;
 }
 
 void over_1( void )
@@ -843,7 +896,7 @@ void move_left_tire( float left_duty )
 	
 	left_duty_sub = fabs( left_duty - old_duty );
 	
-	if( left_duty_sub >= 40 ){
+	if( left_duty_sub >= 20 ){
 		left_duty = old_duty;
 	}	
 	old_duty = left_duty;
@@ -891,9 +944,9 @@ void move_right_tire( float right_duty )
 	
 	right_duty_sub = fabs( right_duty - old_duty );
 	
-	if( right_duty_sub >= 40 ){
+	if( right_duty_sub >= 20 ){
 		right_duty = old_duty;
-	}	
+	}
 	old_duty = right_duty;
 	
 	right_duty = Limit_ul( MAX_DUTY , 0 , right_duty );
@@ -919,7 +972,7 @@ void move_back_tire( float back_duty )
 		i = 0;
 		
 	}else if( back_duty < 0 ){
-		BACK_TIRE_CW 		= 0;
+		BACK_TIRE_CW 	= 0;
 		BACK_TIRE_CCW 	= 1;
 		back_duty *= ( -1 );
 	 	if( i == 0 ){
@@ -939,7 +992,7 @@ void move_back_tire( float back_duty )
 	
 	back_duty_sub = fabs( back_duty - old_duty );
 	
-	if( back_duty_sub >= 40 ){
+	if( back_duty_sub >= 20 ){
 		back_duty = old_duty;
 	}	
 	old_duty = back_duty;
@@ -968,7 +1021,7 @@ float get_motor_output_l(float motor_output_x,float motor_output_y,float degree_
 		degree_reverse_x = 180.0;
 	}else{
 		degree_reverse_x = 0.0;
-		}
+	}
 	if(motor_output_y < 0.0){
 		degree_reverse_y = 180.0;
 	}else{
@@ -1369,18 +1422,19 @@ void buzzer_cycle( float time )
 
 	count_time += INTERRUPT_TIME;
 	
-	if( count_time >= time && ignore == 0 ){
+	if( count_time <= time ){
 		BUZZER		= 1;
+	}else{
 		ignore		= 1;
 	}
 	if( ignore == 1 ){
-		off_time	 += INTERRUPT_TIME;
+		off_time		+= INTERRUPT_TIME;
+		BUZZER 	= 0;
 	}
 	if( off_time >= time ){
 		count_time	= 0.00;
 		off_time 		= 0.00;
 		ignore			= 0;
-		BUZZER 		= 0;
 	}
 }
 
@@ -1498,7 +1552,7 @@ float get_target_degrere( float deviation_x , float deviation_y )
 {	
 	float target_degree = 0.00;
 	
-	if( deviation_x !=0 || deviation_x != 0 ){
+	if( deviation_x !=0 || deviation_y != 0 ){
 		target_degree = gap_degree( atan2f( deviation_y , deviation_x) * ( 180 / M_PI ) );
 	}
 	
@@ -1549,7 +1603,7 @@ float get_target_velocity( float distance_rest , float vertical_distance , float
 {	
 	static float target_velocity	= 0.00;
 	
-	if( distance_rest >  0.5 *  g_max_velocity * g_max_velocity  / a_down ){	
+	if( distance_rest > 0.5 * g_max_velocity * g_max_velocity / a_down ){	
 		if( target_velocity < g_max_velocity ){
 			target_velocity += ( a_up * INTERRUPT_TIME );
 												
@@ -1622,7 +1676,6 @@ float get_motor_output_y( float straight , float target_degree )
 
 	return( Motor_output_y );
 }
-
 
 #ifdef __cplusplus
 void abort(void)
