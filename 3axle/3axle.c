@@ -29,6 +29,11 @@ void abort(void);
 #define D//ebug1		//スタートボタン押す前の初期化
 #define Debug2			//コントローラーなし
 
+#define SQUARE					1	//正方形走行
+#define CIRCLE						2	//円走行
+
+#define MODE						SQUARE
+
 #define ON							1
 #define OFF							0
 
@@ -54,6 +59,9 @@ void abort(void);
 #define MAX_DUTY				35
 #define PWM_PER					80
 #define OPERATE_DEGREE		90	//1000ms Maxでステックを倒したときどれだけ回転するか（度）
+
+/*円の半径*/
+#define RADIUS						1000.0
 
 /*足回り*/
 #define LEFT_TIRE_CW			PORT7.DR.BIT.B4
@@ -419,6 +427,12 @@ void main(void)
 	float	Motor_output_x = 0.00,		//出力方向
 			Motor_output_y = 0.00;
 	
+	float	target_x	= 0.00,
+			target_y	= 0.00;
+			
+	float	radius	= RADIUS,		//半径
+			theta		= 0.00;			//Θ
+			
 	float	motor_output_l		= 0.00,
 			motor_output_r		= 0.00,
 			motor_output_b		= 0.00,
@@ -456,7 +470,7 @@ void main(void)
 			g_count_time = 0;
 			
 			calculate(); //自己位置計算
-
+			
 			#ifndef Debug2
 				stop_flag = stop_duty();
 			#endif
@@ -481,16 +495,28 @@ void main(void)
 				}
 			#endif
 			
-			//現在地から目標座標の角度
-			future_degree	= get_target_degrere( pattern[ task ].x_c - g_now_x , pattern[ task ].y_c - g_now_y );
-			//今の目標から次の目標の角度
-			next_degree		= get_target_degrere( pattern[ task + 1 ].x_c - pattern[ task ].x_c , pattern[ task + 1 ].y_c - pattern[ task ].y_c );
-			//現在座標から目標座標までの距離
-			present_target_distance = get_present_target_dis( pattern[ task ].x_c - g_now_x , pattern[ task ].y_c - g_now_y );
+			#if MODE == SQUARE
+				//現在地から目標座標の角度
+				future_degree	= get_target_degrere( pattern[ task ].x_c - g_now_x , pattern[ task ].y_c - g_now_y );
+				//今の目標から次の目標の角度
+				next_degree		= get_target_degrere( pattern[ task + 1 ].x_c - pattern[ task ].x_c , pattern[ task + 1 ].y_c - pattern[ task ].y_c );
+				//現在座標から目標座標までの距離
+				present_target_distance = get_present_target_dis( pattern[ task ].x_c - g_now_x , pattern[ task ].y_c - g_now_y );
+			
+			#elif MODE == CIRCLE
+				target_x = radius * ( cos( R_TO_D( gap_degree( theta ) ) ) + 1 );
+				target_y = radius * sin( R_TO_D( gap_degree( theta ) ));
+
+				//現在地から目標座標の角度
+				future_degree	= get_target_degrere( target_x - g_now_x , target_y - g_now_y );
+				//現在座標から目標座標までの距離
+				present_target_distance = get_present_target_dis( target_x - g_now_x , target_y - g_now_y );
+			#endif
+			
 			//垂直距離
-			vertical_distance	= get_vertical_distance( future_degree , g_degree , present_target_distance );
+			vertical_distance = get_vertical_distance( future_degree , g_degree , present_target_distance );
 		
-			if( g_start_switch == 1 ){		
+			if( g_start_switch == 1 ){
 				/*//if( CIRCLE_SW >= 2 ){
 					//x方向
 					Motor_output_x = straight_output_x();
@@ -503,105 +529,27 @@ void main(void)
 					motor_output_turn = pd_rock( g_degree , target_degree );
 					
 				}else{*/
-					//目標速度
+					//目標速度計算
 					target_velocity 	= get_target_velocity( present_target_distance , vertical_distance , 50 , 500 );
 					straight				= pd_straight( g_velocity , target_velocity );
-					Motor_output_x	= get_motor_output_x( straight , g_degree );
-					Motor_output_y	= get_motor_output_y( straight , g_degree );
+					Motor_output_x	= get_motor_output_x( straight , future_degree );
+					Motor_output_y	= get_motor_output_y( straight , future_degree );
 					
-					/*switch( task ){
-						case 1:
-							if( vertical_distance >= -10 && vertical_distance <= 50 ){
-								motor_output_turn	= pd_rock( g_degree , next_degree );	
-								
-								if( g_degree <= next_degree + 2 && g_degree >= next_degree - 2 ){
-									task_box ++;
-									if( task_box >= 5 ){
-										task_box	= 0;
-										task			= 2;
-									}
-								}
-							}else{
-								motor_output_turn	= pd_rock( g_degree , future_degree );
-							}break;
-						
-						case 2:
-							if( vertical_distance >= -10 && vertical_distance <= 50 ){
-								motor_output_turn	= pd_rock( g_degree , next_degree );	
-								
-								if( g_degree <= next_degree + 1 && g_degree >= next_degree - 1){
-									task_box ++;
-									if( task_box >= 10 ){
-										task_box	= 0;
-										task			= 3;
-									}
-								}
-							}else{
-								motor_output_turn	= pd_rock( g_degree , future_degree );
-							}break;
-							
-						case 3:
-							if( vertical_distance >= -10 && vertical_distance <= 50 ){
-								motor_output_turn	= pd_rock( g_degree , next_degree );	
-								
-								if( g_degree <= next_degree + 1 && g_degree >= next_degree - 1){
-									task_box ++;
-									if( task_box >= 10 ){
-										task_box	= 0;
-										task			= 4;
-									}
-								}
-							}else{
-								motor_output_turn	= pd_rock( g_degree , future_degree );
-							}break;
-							
-						case 4:
-							if( vertical_distance >= -10 && vertical_distance <= 50 ){
-								motor_output_turn	= pd_rock( g_degree , next_degree );	
-								
-								if( g_degree <= next_degree + 1 && g_degree >= next_degree - 1){
-									task_box ++;
-									if( task_box >= 10 ){
-										task_box	= 0;
-										task			= 5;
-									}
-								}
-							}else{
-								motor_output_turn	= pd_rock( g_degree , future_degree );
-							}break;
-						
-						case 5:
-							free_output();
-						break;
-
-						default:
-							free_output();
-						break;
-					}*/
-				//}
-				
-				if( vertical_distance >= 0 && vertical_distance <= 50 ){
-					task ++;
-				}
-					//motor_output_turn	= pd_rock( g_degree , next_degree );	
-					
-				/*	motor_output_l	= motor_output_turn;
-					motor_output_r	= motor_output_turn;
-					motor_output_b	= motor_output_turn;
-					
-					if( g_degree <= next_degree + 1 && g_degree >= next_degree - 1){
-						task_box ++;
-						if( task_box >= 10 ){
-							task_box = 0;
+					#if MODE == SQUARE
+						if( vertical_distance <= 50 ){
 							task ++;
 						}
-					}
-				}else{*/
+					#elif MODE == CIRCLE
+						if( vertical_distance <= 50 ){
+							theta += 5;
+						}
+					#endif
+
 					motor_output_turn	= pd_rock( g_degree , 0 );
 					motor_output_l	= get_motor_output_l( Motor_output_x, Motor_output_y, g_degree ) + motor_output_turn;
 					motor_output_r	= get_motor_output_r( Motor_output_x, Motor_output_y, g_degree ) + motor_output_turn;
 					motor_output_b	= get_motor_output_b( Motor_output_x, Motor_output_y, g_degree ) + motor_output_turn;
-			//	}
+				//}
 
 				if( g_start_switch == 0  || stop_flag >= 100 || CROSS_SW >= 2 ){
 					motor_output_l	= 0;
@@ -640,8 +588,8 @@ void main(void)
 				//sprintf(str,"%.4f %.4f, %.4f,\n\r", ENCF() , ENCL() ,ENCR() );
 				//sprintf( str,"%.4f,%f,%d,%d,%d,\n\r",g_Rate_f,g_Angle_f,g_X_acc,g_Y_acc,g_Z_acc );
 				//sprintf(str,"%.4f, \n\r",  motor_output_turn);
-				sprintf( str,"%.4f, %.4f, %.4f , %.4f, %.4f, %.4f, %.4f\n\r", motor_output_l, motor_output_r, motor_output_b , g_velocity , target_velocity, Motor_output_x , Motor_output_y );
-				transmit( str );
+				//sprintf( str,"%.4f, %.4f, %.4f , %.4f, %.4f, %.4f, %.4f\n\r", motor_output_l, motor_output_r, motor_output_b , g_velocity , target_velocity, Motor_output_x , Motor_output_y );
+				//transmit( str );
 			}
 		}//INTERRUPT_TIME
 	}//while(1)
@@ -660,37 +608,31 @@ void timer(void)
 
 void over_1( void )
 {	
-	//MTU1.TSR.BIT.TCFV = 0;
 	g_mtu1_over ++;
 }
 
 void under_1( void )
 {
-	//MTU1.TSR.BIT.TCFU = 0;
 	g_mtu1_under ++;
 }
 
 void over_2( void )
 {	
-	//MTU2.TSR.BIT.TCFV = 0;
 	g_mtu2_over ++;
 }
 
 void under_2( void )
 {
-	//MTU2.TSR.BIT.TCFU = 0;
 	g_mtu2_under ++;
 }
 
 void over_8( void )
 {	
-	//MTU8.TSR.BIT.TCFV = 0;
 	g_mtu8_over ++;
 }
 
 void under_8( void )
 {
-	//MTU8.TSR.BIT.TCFU = 0;
 	g_mtu8_under ++;
 }
 
