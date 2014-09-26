@@ -280,6 +280,7 @@ float turn_output( void );
 void initialization( void );
 float get_present_target_dis( float , float );
 float get_target_degrere( float deviation_x , float deviation_y );
+float get_horizontal_distance( float future_degree , float now_degree , float distance );
 float get_vertical_distance( float future_degree , float now_degree , float distance );
 float get_target_velocity( float distance_rest , float vertical_distance , float a_up ,  float a_down );
 void free_output( void );
@@ -439,7 +440,8 @@ void main(void)
 			motor_output_turn	= 0.00;
 			
 	float present_target_distance	= 0.00,
-			vertical_distance			= 0.00;
+			vertical_distance			= 0.00,
+			horizontal_distance			= 0.00;
 			
 	float	future_degree	= 0.00,
 			next_degree		= 0.00,
@@ -495,15 +497,19 @@ void main(void)
 				}
 			#endif
 			
-			#if MODE == SQUARE
+			//#if MODE == SQUARE
 				//現在地から目標座標の角度
 				future_degree	= get_target_degrere( pattern[ task ].x_c - g_now_x , pattern[ task ].y_c - g_now_y );
 				//今の目標から次の目標の角度
-				next_degree		= get_target_degrere( pattern[ task + 1 ].x_c - pattern[ task ].x_c , pattern[ task + 1 ].y_c - pattern[ task ].y_c );
+				next_degree		= get_target_degrere( pattern[ task ].x_c - pattern[ task-1 ].x_c , pattern[ task ].y_c - pattern[ task - 1].y_c );
 				//現在座標から目標座標までの距離
 				present_target_distance = get_present_target_dis( pattern[ task ].x_c - g_now_x , pattern[ task ].y_c - g_now_y );
-			
-			#elif MODE == CIRCLE
+				//垂直距離
+				vertical_distance = get_vertical_distance( future_degree , g_degree , present_target_distance );
+				//水平距離
+				horizontal_distance = get_horizontal_distance( future_degree , g_degree , present_target_distance );
+				
+			/*#elif MODE == CIRCLE
 				target_x = radius * ( cos( R_TO_D( gap_degree( theta ) ) ) + 1 );
 				target_y = radius * sin( R_TO_D( gap_degree( theta ) ));
 
@@ -511,10 +517,7 @@ void main(void)
 				future_degree	= get_target_degrere( target_x - g_now_x , target_y - g_now_y );
 				//現在座標から目標座標までの距離
 				present_target_distance = get_present_target_dis( target_x - g_now_x , target_y - g_now_y );
-			#endif
-			
-			//垂直距離
-			vertical_distance = get_vertical_distance( future_degree , g_degree , present_target_distance );
+			#endif*/
 		
 			if( g_start_switch == 1 ){
 				/*//if( CIRCLE_SW >= 2 ){
@@ -530,20 +533,67 @@ void main(void)
 					
 				}else{*/
 					//目標速度計算
-					target_velocity 	= get_target_velocity( present_target_distance , vertical_distance , 50 , 500 );
+					switch( task ){
+						case 1:
+							target_velocity 	= get_target_velocity( present_target_distance , vertical_distance , 50 , 500 );
+						break;
+						
+						case 2:
+							target_velocity 	= get_target_velocity( present_target_distance , horizontal_distance , 50 , 500 );
+						break;
+						
+						case 3:
+							target_velocity 	= get_target_velocity( present_target_distance , ( 1)*vertical_distance , 50 , 500 );
+						break;
+						
+						case 4:
+							target_velocity 	= get_target_velocity( present_target_distance , (-1)*horizontal_distance , 50 , 500 );
+						break;
+					}
 					straight				= pd_straight( g_velocity , target_velocity );
-					Motor_output_x	= get_motor_output_x( straight , future_degree );
-					Motor_output_y	= get_motor_output_y( straight , future_degree );
+					Motor_output_x	= get_motor_output_x( straight , next_degree );
+					Motor_output_y	= get_motor_output_y( straight , next_degree );
 					
-					#if MODE == SQUARE
-						if( vertical_distance <= 50 ){
-							task ++;
+				//	#if MODE == SQUARE
+						switch( task ){
+							case 1:
+								motor_output_turn	= pd_rock( g_degree , 0 );
+								if( vertical_distance <= 50 ){
+									task	= 2;
+								}break;
+							
+							case 2:
+								motor_output_turn	= pd_rock( g_degree , 0 );
+								if( horizontal_distance <= 50 ){
+									task	= 3;
+								}break;
+								
+							case 3:
+								motor_output_turn	= pd_rock( g_degree , 0 );
+								if( (-1)*vertical_distance <= 50 ){
+									task	= 4;
+								}break;
+							
+							case 4:
+								motor_output_turn	= pd_rock( g_degree , 0 );
+								if( (-1)*horizontal_distance <= 50 ){
+									task	= 5;
+								}break;
+							
+							case 5:
+								free_output();
+							break;
+
+							default:
+								free_output();
+							break;
 						}
-					#elif MODE == CIRCLE
-						if( vertical_distance <= 50 ){
+						
+					/*#elif MODE == CIRCLE
+						if( vertical_distance <= 10 ){
 							theta += 5;
 						}
-					#endif
+					#endif*/
 
 					motor_output_turn	= pd_rock( g_degree , 0 );
 					motor_output_l	= get_motor_output_l( Motor_output_x, Motor_output_y, g_degree ) + motor_output_turn;
@@ -577,6 +627,7 @@ void main(void)
 				//sprintf(str,"%d, %.4f, %.4f, %.4f,\n\r", task, g_now_x, g_now_y, g_degree );
 				//sprintf(str,"%d, %.4f, %.4f, %.4f, %.4f, %.4f\n\r", task, g_now_x, g_now_y, g_degree, next_degree, future_degree );
 				//sprintf(str,"%d, %f \n\r", g_start_switch ,  g_stop_time );
+				//sprintf(str,"%.4f ,%.4f,%d\n\r", vertical_distance , horizontal_distance , task );
 				//sprintf(str,"%d \n\r", stop_flag );
 				//sprintf(str,"%.4f,%.4f,%.4f,%.4f,%.4f\n\r", g_now_x , g_now_y , g_x_c ,g_y_c , g_degree );
 				//sprintf(str,"%.4f ,%.4f \n\r", g_degree , g_Rate_f );
@@ -1499,6 +1550,27 @@ float get_target_degrere( float deviation_x , float deviation_y )
 	}
 	
 	return ( target_degree );
+}
+
+float get_horizontal_distance( float future_degree , float now_degree , float distance )
+{
+	float	horizontal_distance	= 0.00,
+			deviation_degree	= 0.00;
+
+	deviation_degree = gap_degree( future_degree - now_degree );
+	
+	if( deviation_degree > 90 ){
+     	deviation_degree	= 180 - deviation_degree;
+     	horizontal_distance	= ( -1 ) * distance * sin( deviation_degree * ( M_PI / 180) );
+  
+	}else if( deviation_degree < -90 ){
+		deviation_degree	= deviation_degree * ( -1 ) - 180;
+   		horizontal_distance	= ( -1 ) * distance * sin( deviation_degree * (M_PI / 180 ) );
+	
+	}else{
+		horizontal_distance	= distance * sin( deviation_degree * ( M_PI / 180 ) );
+	}
+	return (horizontal_distance );
 }
 
 /******************************************************************************
