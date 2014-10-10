@@ -15,7 +15,7 @@ void init_clock(void)
 	//ICLKは周辺モジュールクロックより低い周波数ではいけない
 	SYSTEM.MSTPCRA.BIT.MSTPA9 = 0;
 	SYSTEM.SCKCR.BIT.PCK = 1;//周辺クロックの12MHzの4倍＝48MHz
-	SYSTEM.SCKCR.BIT.ICK = 0;//マイコン8倍速
+	SYSTEM.SCKCR.BIT.ICK = 0;//マイコン8倍速12MHz * 8 = 96MHz
 }
 
 void init_CMT0(void)

@@ -26,16 +26,23 @@ void abort(void);
 #include "init_rx62n.h"
 #include "iodefine.h"
 
-#define D//ebug1		//ƒXƒ^[ƒgƒ{ƒ^ƒ“‰Ÿ‚·‘O‚Ì‰Šú‰»
-#define Debug2			//ƒRƒ“ƒgƒ[ƒ‰[‚È‚µ
+#define ON							1
+#define OFF							0
+
+#define D//ebug1		//ƒXƒ^[ƒgƒ{ƒ^ƒ“‰Ÿ‚·‘O‚Ì‰Šú‰»‚È‚µ
+#define D//ebug2		//ƒRƒ“ƒgƒ[ƒ‰[‚È‚µ‚ÅƒXƒ^[ƒg
 
 #define SQUARE					1	//³•ûŒ`‘–s
 #define CIRCLE						2	//‰~‘–s
 
-#define MODE						SQUARE
+#define CALIBRATION			3	//ƒLƒƒƒŠƒuƒŒ
+#define MANUAL_CONTROL	4	//è“®‘€c
+#define AUTO_CONTROL		5	//©“®‘€c
 
-#define ON							1
-#define OFF							0
+/*ƒ‚[ƒhØ‘Ö*/
+#define OUTPUT_MODE			MANUAL_CONTROL
+#define MODE						SQUARE
+#define SERIAL_MODE			ON
 
 #define INTERRUPT_START	CMT.CMSTR0.BIT.STR0 = 1;//ƒJƒEƒ“ƒgŠJn
 
@@ -50,15 +57,25 @@ void abort(void);
 #define INTERRUPT_TIME 		0.005
 
 /*PD§Œä*/
-#define ROCK_P_GAIN			5.0
-#define ROCK_D_GAIN			20.0
+#if OUTPUT_MODE == CALIBRATION //ƒLƒƒƒŠƒuƒŒ
+	#define ROCK_P_GAIN			20.0
+	#define ROCK_D_GAIN			45.0
+#else
+	#define ROCK_P_GAIN			1.5//5.0
+	#define ROCK_D_GAIN			10.0//20.0
+#endif
+
 #define STRAIGHT_P_GAIN	0.2
 #define STRAIGHT_D_GAIN	0.0
+
 /*Ô‘Ì‘€ì*/
 #define MAX_VELOCITY			400.0
-#define MAX_DUTY				35
-#define PWM_PER					80
-#define OPERATE_DEGREE		90	//1000ms Max‚ÅƒXƒeƒbƒN‚ğ“|‚µ‚½‚Æ‚«‚Ç‚ê‚¾‚¯‰ñ“]‚·‚é‚©i“xj
+#define MAX_DUTY				95.0
+#define PWM_PER					90.0
+#define OPERATE_DEGREE		180.0//120.0	//1000ms Max‚ÅƒXƒeƒbƒN‚ğ“|‚µ‚½‚Æ‚«‚Ç‚ê‚¾‚¯‰ñ“]‚·‚é‚©i“xj
+
+/*‘–s‹——£Œˆ’è*/
+#define MILEAGE					6000.0
 
 /*‰~‚Ì”¼Œa*/
 #define RADIUS						1000.0
@@ -93,12 +110,12 @@ void abort(void);
 /*’†S‚©‚çƒGƒ“ƒR[ƒ_‚Ü‚Å‚Ì‹——£*/
 #define CENTER_TO_ENC		237.0
 
-#define PULSE						2000
+#define PULSE						2000.0
 
 /*ƒGƒ“ƒR[ƒ_ƒ^ƒCƒ„’¼Œa*/
-#define ENC_DIAMETER_F 		51.0
-#define ENC_DIAMETER_L		51.0
-#define ENC_DIAMETER_R		51.0
+#define ENC_DIAMETER_F 		51.0//( 51.00901999 )//50.93722666//50.86543333//50.79364//51.0
+#define ENC_DIAMETER_L		51.0//( 51.43542 )//51.33956//51.2437//51.14784//51.0
+#define ENC_DIAMETER_R		51.0//( 51.13076 )//51.12364//51.11652//51.1094//51.0
 
 #define BUZZER						PORT2.DR.BIT.B2
 
@@ -161,8 +178,8 @@ int		g_Rate		= 0,
 		g_Y_acc 	= 0,
 		g_Z_acc 	= 0;
 
-float	g_Rate_f			= 0.00,
-		g_Angle_f			= 0.00;
+float	g_Rate_f	= 0.00,
+		g_Angle_f	= 0.00;
 		
 /*©ŒÈˆÊ’u*/
 float	g_vertex_b_x	= 0.0,	g_vertex_b_y	= 0.0,
@@ -170,15 +187,17 @@ float	g_vertex_b_x	= 0.0,	g_vertex_b_y	= 0.0,
 		g_vertex_r_x	= 0.0,	g_vertex_r_y	= 0.0,
 		g_x_c			= 0.0,	g_y_c			= 0.0;
 		
-float	g_now_x	= 0.00,
-		g_now_y	= 0.00,
-		g_degree	= 0.00,
-		g_velocity	= 0.00,
-		g_imu_x	= 0.00,
-		g_imu_y	= 0.00;
+float	g_now_x		= 0.00,
+		g_now_y		= 0.00,
+		g_degree		= 0.00,
+		g_velocity		= 0.00,
+		g_angular_velocity = 0.00;
 		
 /*Å‘å‘¬“x*/
 float  g_max_velocity = MAX_VELOCITY;
+float	g_motor_output_l = 0.00,
+		g_motor_output_r = 0.00,
+		g_motor_output_b = 0.00;
 
 typedef struct Target
 {
@@ -186,7 +205,7 @@ typedef struct Target
 	float y_c;
 }Target;
 
-/*ps2ƒRƒ“ƒf[ƒ^*/		
+/*ps2ƒRƒ“ƒf[ƒ^*/
 union psdate1{
 		unsigned long dword;
 		struct{
@@ -248,8 +267,7 @@ float mtu8_count( void );
 unsigned long Rspi_send_1(unsigned long moji);
 unsigned long Rspi_send_short_1(unsigned short int moji);
 void Rspi_recive_send_line_dualshock(void);
-void transmit( char str[ ] );
-void transmit_2( char str[ ]);
+void transmit( char str[ ] , int ch);
 char Receive_uart_c( void );
 float Limit_ul(float upper,float lower,float figure);
 void input_R1350N(void);
@@ -279,11 +297,13 @@ float straight_output_y( void );
 float turn_output( void );
 void initialization( void );
 float get_present_target_dis( float , float );
-float get_target_degrere( float deviation_x , float deviation_y );
+float get_target_degree( float deviation_x , float deviation_y );
 float get_horizontal_distance( float future_degree , float now_degree , float distance );
 float get_vertical_distance( float future_degree , float now_degree , float distance );
 float get_target_velocity( float distance_rest , float vertical_distance , float a_up ,  float a_down );
 void free_output( void );
+void position_rock(float target_x, float target_y, float now_x, float now_y, float now_degree );
+void calculate( void );
 
 void initial_config( void )
 {
@@ -293,8 +313,9 @@ void initial_config( void )
 	init_SCI0();
 	init_SCI1();
 	init_SCI2();
-	init_Rspi_dualshock();
 	init_encorder();
+	//init_Rspi_dualshock();
+	
 	INTERRUPT_START
 }
 
@@ -306,126 +327,13 @@ void io_config( void )
 	PORT2.DDR.BIT.B2 = 1;
 }
 
-void calculate( void )
-{
-	float	enc_dis_f				= 0.00,
-			enc_dis_r				= 0.00,
-			enc_dis_l				= 0.00,
-			enc_dis_subt_f		= 0.00,
-			enc_dis_subt_r		= 0.00,
-			enc_dis_subt_l		= 0.00,
-			radian_f					= 0.00,
-			radian_r					= 0.00,
-			radian_l					= 0.00,
-			degree_reverse_f	= 0.00,
-			degree_reverse_r	= 0.00,
-			degree_reverse_l 	= 0.00,
-			velocity_x				= 0.00,
-			velocity_y				= 0.00;
-			
-	static float	enc_x_f				= 0.00,
-					enc_y_f				= 0.00,
-					enc_x_r				= 0.00,
-					enc_y_r				= 0.00,
-					enc_x_l				= 0.00,
-					enc_y_l				= 0.00,
-					old_x					= 0.00,
-					old_y					= 0.00,
-					old_enc_dis_f		= 0.00,
-					old_enc_dis_r	= 0.00,
-					old_enc_dis_l		= 0.00;
-					
-	enc_dis_f = ( -1 ) * ENC_DIAMETER_F * M_PI * ( ENCF() / PULSE );
-	enc_dis_r = ENC_DIAMETER_R * M_PI * ( ENCR() / PULSE );
-	enc_dis_l = ENC_DIAMETER_L * M_PI * ( ENCL() / PULSE );
-	
-	enc_dis_subt_f = enc_dis_f - old_enc_dis_f;
-	enc_dis_subt_r = enc_dis_r - old_enc_dis_r;
-	enc_dis_subt_l = enc_dis_l - old_enc_dis_l;
-	
-	radian_f = enc_dis_subt_f / CENTER_TO_ENC;
-	radian_r = enc_dis_subt_r / CENTER_TO_ENC;
-	radian_l = enc_dis_subt_l / CENTER_TO_ENC;
-
-	g_degree += R_TO_D( ( radian_f + radian_r + radian_l ) / 3 );
-	g_degree = gap_degree( g_degree );
-	
-	if( enc_dis_subt_f < 0 ){
-		 degree_reverse_f = 180.0;
-	}
-	if( enc_dis_subt_r < 0 ){
-		degree_reverse_r = 180.0;
-	}
-	if( enc_dis_subt_l < 0 ){
-		degree_reverse_l = 180.0;
-	}
-
-	//â‰º‚³‚ñ
-	//OŠpŒ`‚Ì’¸“_‚ÌÀ•W‚ğZo
-	/*g_vertex_b_x += (fabs(enc_dis_subt_r) * cos(D_TO_R( gap_degree( g_degree  + (degree_reverse_r - 30 )))) + fabs(enc_dis_subt_l) * cos(D_TO_R( gap_degree(g_degree + (degree_reverse_l - 150)))));
-	g_vertex_b_y += (fabs(enc_dis_subt_r) * sin(D_TO_R( gap_degree(g_degree  + (degree_reverse_r - 30 )))) + fabs(enc_dis_subt_l) * sin(D_TO_R( gap_degree(g_degree  + (degree_reverse_l - 150)))));
-	g_vertex_l_x += (fabs(enc_dis_subt_l) * cos(D_TO_R( gap_degree(g_degree - 150.0 + degree_reverse_l ))) + fabs(enc_dis_subt_f) * cos(D_TO_R( gap_degree(g_degree + 90.0 + degree_reverse_f))));
-	g_vertex_l_y += (fabs(enc_dis_subt_l) * sin(D_TO_R( gap_degree(g_degree - 150.0 + degree_reverse_l ))) + fabs(enc_dis_subt_f) * sin(D_TO_R( gap_degree(g_degree + 90.0 + degree_reverse_f))));
-	g_vertex_r_x += (fabs(enc_dis_subt_f) * cos(D_TO_R( gap_degree(g_degree + 90.0 + degree_reverse_f ))) + fabs(enc_dis_subt_r) * cos(D_TO_R( gap_degree( g_degree + (degree_reverse_r - 30)))));
-	g_vertex_r_y += (fabs(enc_dis_subt_f) * sin(D_TO_R( gap_degree(g_degree + 90.0 + degree_reverse_f ))) + fabs(enc_dis_subt_r) * sin(D_TO_R( gap_degree(g_degree + (degree_reverse_r - 30)))));
-	
-	g_x_c = (g_vertex_b_x + g_vertex_l_x + g_vertex_r_x) / 3;
-	g_y_c = (g_vertex_b_y + g_vertex_l_y + g_vertex_r_y) / 3;*/
-	
-	//©•ª
-	enc_x_f += 2 * fabs( enc_dis_subt_f ) * cos( D_TO_R( gap_degree( 90 + g_degree + degree_reverse_f ) ) );
-	enc_y_f += 2 * fabs( enc_dis_subt_f ) * sin( D_TO_R( gap_degree( 90 + g_degree +degree_reverse_f ) ) );
-	enc_x_r += 2 * fabs( enc_dis_subt_r ) * cos( D_TO_R( gap_degree( -30 + g_degree + degree_reverse_r ) ) );
-	enc_y_r += 2 * fabs( enc_dis_subt_r ) * sin( D_TO_R( gap_degree(-30 + g_degree + degree_reverse_r ) ) );
-	enc_x_l += 2 * fabs( enc_dis_subt_l ) * cos( D_TO_R( gap_degree( 30 + 180 + g_degree + degree_reverse_l ) ) );
-	enc_y_l += 2 * fabs( enc_dis_subt_l ) * sin( D_TO_R( gap_degree( 30 + 180 + g_degree + degree_reverse_l ) ) );
-
-	g_now_x = ( enc_x_f + enc_x_r + enc_x_l ) / 3;
-	g_now_y = ( enc_y_f + enc_y_r + enc_y_l ) / 3;
-
-	/*g_now_x += (    (fabs(enc_dis_subt_l) * cos(D_TO_R(g_degree -150 + degree_reverse_l)))
-						  + (fabs(enc_dis_subt_r) * cos(D_TO_R(g_degree -30 + degree_reverse_r)))
-						  + (fabs(enc_dis_subt_f) * cos(D_TO_R(g_degree + 90 + degree_reverse_f)))  );
-						  
-	g_now_y += (    (fabs(enc_dis_subt_l) * sin(D_TO_R(g_degree -150 + degree_reverse_l)))
-						  + (fabs(enc_dis_subt_r) * sin(D_TO_R(g_degree -30 + degree_reverse_r)))
-						  + (fabs(enc_dis_subt_f) * sin(D_TO_R(g_degree + 90 + degree_reverse_f)))  );	*/
-	
-	old_enc_dis_f = enc_dis_f;
-	old_enc_dis_r = enc_dis_r;
-	old_enc_dis_l = enc_dis_l;
-	
-	velocity_x	=( g_now_x - old_x ) / INTERRUPT_TIME;
-	velocity_y	=( g_now_y - old_y ) / INTERRUPT_TIME;
-	g_velocity	= sqrt( ( velocity_x * velocity_x ) + ( velocity_y * velocity_y ) );
-	
-	old_x = g_now_x;
-	old_y = g_now_y;
-}
-
-void imu_calculate( void )
-{
-	float	velocity			= 0.00,
-			velocity_sub	= 0.00,
-			displacement	= 0.00;
-	static float	old_velocity	= 0.00;
-	
-	velocity_sub = velocity - old_velocity;
-	velocity = velocity_sub + (float)(g_Y_acc) * INTERRUPT_TIME;
-	
-	displacement = velocity_sub * INTERRUPT_TIME + 0.5 * (float)(g_Y_acc) * INTERRUPT_TIME * INTERRUPT_TIME;
-	
-	g_imu_x += displacement * cos( g_Rate_f );
-	g_imu_y += displacement * sin( g_Rate_f );
-	
-	old_velocity = velocity;
-}
-
 void main(void)
 {
-	char	str[30] = { 0 };
+	#if SERIAL_MODE == ON
+		char	str[30] = { 0 };
+	#endif
 	
-	float	Motor_output_x = 0.00,		//o—Í•ûŒü
+	float	Motor_output_x = 0.00,
 			Motor_output_y = 0.00;
 	
 	float	target_x	= 0.00,
@@ -434,18 +342,27 @@ void main(void)
 	float	radius	= RADIUS,		//”¼Œa
 			theta		= 0.00;			//ƒ¦
 			
-	float	motor_output_l		= 0.00,
+	float	motor_output			= 0.00,
+			motor_output_l		= 0.00,
 			motor_output_r		= 0.00,
 			motor_output_b		= 0.00,
+			output_l					= 0.00,
+			output_r				= 0.00,
+			output_b				= 0.00,
 			motor_output_turn	= 0.00;
 			
 	float present_target_distance	= 0.00,
 			vertical_distance			= 0.00,
 			horizontal_distance			= 0.00;
 			
-	float	future_degree	= 0.00,
-			next_degree		= 0.00,
-			target_degree	= 0.00;
+	float old_x	= 0.00;
+	float old_y	= 0.00;
+			
+	float	future_degree		= 0.00,
+			rock_degree			= 0.00,
+			old_target_degree	= 0.00,
+			next_degree			= 0.00,
+			target_degree		= 0.00;
 			
 	float target_velocity	= 0.00;
 	
@@ -453,10 +370,13 @@ void main(void)
 	
 	int		task			= 1,
 			task_box	= 0,
+			mileage_flag = 0,
 			stop_flag	= 0;
+
+	int ps_switch		= 0;
 	
 	Target pattern[ 6 ] =
-		{	{ POSITION_X , POSITION_Y },						//ƒpƒ^[ƒ“1
+		{	{ POSITION_X , POSITION_Y },
 			{ 1000 , 0 },
 			{ 1000 , 1000 },
 			{ 0 , 1000 },		
@@ -464,10 +384,12 @@ void main(void)
 			{ 1000 , 0 },
 		};
 	
+	//‰Šúİ’è
 	initial_config();
+	//ioİ’è
 	io_config();
 	
-	while( 1 ){	
+	while( 1 ){
 		if( g_count_time >= INTERRUPT_TIME ){
 			g_count_time = 0;
 			
@@ -477,9 +399,13 @@ void main(void)
 				stop_flag = stop_duty();
 			#endif
 			
-			if( ( int )START_SELECT_SW == 8 ){
+			if( (int)START_SELECT_SW == 8 ){
 				LED_P81 = 1;
 				g_start_switch = 1;
+			}
+			
+			if( PS_SW == 1 ){
+				ps_switch = 1;
 			}
 			
 			#ifndef Debug1
@@ -496,31 +422,11 @@ void main(void)
 					buzzer_cycle( 1.00 );
 				}
 			#endif
-			
-			//#if MODE == SQUARE
-				//Œ»İ’n‚©‚ç–Ú•WÀ•W‚ÌŠp“x
-				future_degree	= get_target_degrere( pattern[ task ].x_c - g_now_x , pattern[ task ].y_c - g_now_y );
-				//¡‚Ì–Ú•W‚©‚çŸ‚Ì–Ú•W‚ÌŠp“x
-				next_degree		= get_target_degrere( pattern[ task ].x_c - pattern[ task-1 ].x_c , pattern[ task ].y_c - pattern[ task - 1].y_c );
-				//Œ»İÀ•W‚©‚ç–Ú•WÀ•W‚Ü‚Å‚Ì‹——£
-				present_target_distance = get_present_target_dis( pattern[ task ].x_c - g_now_x , pattern[ task ].y_c - g_now_y );
-				//‚’¼‹——£
-				vertical_distance = get_vertical_distance( future_degree , g_degree , present_target_distance );
-				//…•½‹——£
-				horizontal_distance = get_horizontal_distance( future_degree , g_degree , present_target_distance );
-				
-			/*#elif MODE == CIRCLE
-				target_x = radius * ( cos( R_TO_D( gap_degree( theta ) ) ) + 1 );
-				target_y = radius * sin( R_TO_D( gap_degree( theta ) ));
-
-				//Œ»İ’n‚©‚ç–Ú•WÀ•W‚ÌŠp“x
-				future_degree	= get_target_degrere( target_x - g_now_x , target_y - g_now_y );
-				//Œ»İÀ•W‚©‚ç–Ú•WÀ•W‚Ü‚Å‚Ì‹——£
-				present_target_distance = get_present_target_dis( target_x - g_now_x , target_y - g_now_y );
-			#endif*/
 		
 			if( g_start_switch == 1 ){
-				/*//if( CIRCLE_SW >= 2 ){
+/**************è“®ƒ‚[ƒh***************************/
+				
+				#if OUTPUT_MODE == MANUAL_CONTROL
 					//x•ûŒü
 					Motor_output_x = straight_output_x();
 					//y•ûŒü
@@ -529,32 +435,69 @@ void main(void)
 					target_degree += turn_output();
 					target_degree = gap_degree( target_degree );
 					
-					motor_output_turn = pd_rock( g_degree , target_degree );
-					
-				}else{*/
-					//–Ú•W‘¬“xŒvZ
-					switch( task ){
-						case 1:
-							target_velocity 	= get_target_velocity( present_target_distance , vertical_distance , 50 , 500 );
-						break;
+					//‰EƒXƒeƒBƒbƒNA¶ƒXƒeƒBƒbƒN‘€ì‚È‚µ@~ƒ{ƒ^ƒ“‰Ÿ‚³‚ê‚½‚Æ‚«
+					if( (Motor_output_x == 0 && Motor_output_y == 0 && old_target_degree == target_degree ) || CROSS_SW >= 2){
+						position_rock( old_x , old_y , g_now_x , g_now_y , g_degree);
+						motor_output_l	= g_motor_output_l;
+						motor_output_r	= g_motor_output_r;
+						motor_output_b	= g_motor_output_b;
 						
-						case 2:
-							target_velocity 	= get_target_velocity( present_target_distance , horizontal_distance , 50 , 500 );
-						break;
-						
-						case 3:
-							target_velocity 	= get_target_velocity( present_target_distance , ( 1)*vertical_distance , 50 , 500 );
-						break;
-						
-						case 4:
-							target_velocity 	= get_target_velocity( present_target_distance , (-1)*horizontal_distance , 50 , 500 );
-						break;
+					}else{ 
+						motor_output_l	= get_motor_output_l( Motor_output_x, Motor_output_y, 0 );
+						motor_output_r	= get_motor_output_r( Motor_output_x, Motor_output_y, 0 );
+						motor_output_b	= get_motor_output_b( Motor_output_x, Motor_output_y, 0 );
+						old_x = g_now_x;
+						old_y = g_now_y;
 					}
-					straight				= pd_straight( g_velocity , target_velocity );
-					Motor_output_x	= get_motor_output_x( straight , next_degree );
-					Motor_output_y	= get_motor_output_y( straight , next_degree );
 					
-				//	#if MODE == SQUARE
+					//Ô‘ÌŠp“x‚¾‚¯•Ï‚¦‚é
+					if(Motor_output_x == 0 && Motor_output_y == 0 && old_target_degree != target_degree){
+						motor_output_l	= 0;
+						motor_output_r	= 0;
+						motor_output_b	= 0;	
+					}
+					
+					motor_output_turn = pd_rock( g_degree , target_degree );
+
+					old_target_degree = target_degree;
+/***************©“®ƒ‚[ƒh************************************/					
+				#elif OUTPUT_MODE == AUTO_CONTROL
+				/*********³•ûŒ`********/
+					#if MODE == SQUARE
+						//Œ»İ’n‚©‚ç–Ú•WÀ•W‚ÌŠp“x
+						future_degree	= get_target_degree( pattern[ task ].x_c - g_now_x , pattern[ task ].y_c - g_now_y );
+						//¡‚Ì–Ú•W‚©‚çŸ‚Ì–Ú•W‚ÌŠp“x
+						next_degree		= get_target_degree( pattern[ task ].x_c - pattern[ task-1 ].x_c , pattern[ task ].y_c - pattern[ task - 1].y_c );
+						//Œ»İÀ•W‚©‚ç–Ú•WÀ•W‚Ü‚Å‚Ì‹——£
+						present_target_distance = get_present_target_dis( pattern[ task ].x_c - g_now_x , pattern[ task ].y_c - g_now_y );
+						//‚’¼‹——£
+						vertical_distance = get_vertical_distance( future_degree , g_degree , present_target_distance );
+						//…•½‹——£
+						horizontal_distance = get_horizontal_distance( future_degree , g_degree , present_target_distance );
+						
+						//–Ú•W‘¬“xŒvZ
+						switch( task ){
+							case 1:
+								target_velocity 	= get_target_velocity( present_target_distance , vertical_distance , 50 , 500 );
+							break;
+							
+							case 2:
+								target_velocity 	= get_target_velocity( present_target_distance , horizontal_distance , 50 , 500 );
+							break;
+							
+							case 3:
+								target_velocity 	= get_target_velocity( present_target_distance , ( 1)*vertical_distance , 50 , 500 );
+							break;
+							
+							case 4:
+								target_velocity 	= get_target_velocity( present_target_distance , (-1)*horizontal_distance , 50 , 500 );
+							break;
+						}
+						
+						straight				= pd_straight( g_velocity , target_velocity );
+						Motor_output_x	= get_motor_output_x( straight , next_degree );
+						Motor_output_y	= get_motor_output_y( straight , next_degree );
+						
 						switch( task ){
 							case 1:
 								motor_output_turn	= pd_rock( g_degree , 0 );
@@ -588,60 +531,83 @@ void main(void)
 								free_output();
 							break;
 						}
+			/************‰~**************/
+					#elif MODE == CIRCLE
+						//‰~‚Ì–Ú•WÀ•W
+						target_x = radius * ( cos( R_TO_D( gap_degree( theta ) ) ) + 1 );
+						target_y = radius * sin( R_TO_D( gap_degree( theta ) ));
+
+						//Œ»İ’n‚©‚ç–Ú•WÀ•W‚ÌŠp“x
+						future_degree	= get_target_degrere( target_x - g_now_x , target_y - g_now_y );
+						//Œ»İÀ•W‚©‚ç–Ú•WÀ•W‚Ü‚Å‚Ì‹——£
+						present_target_distance = get_present_target_dis( target_x - g_now_x , target_y - g_now_y );
 						
-					/*#elif MODE == CIRCLE
 						if( vertical_distance <= 10 ){
 							theta += 5;
 						}
-					#endif*/
-
-					motor_output_turn	= pd_rock( g_degree , 0 );
-					motor_output_l	= get_motor_output_l( Motor_output_x, Motor_output_y, g_degree ) + motor_output_turn;
-					motor_output_r	= get_motor_output_r( Motor_output_x, Motor_output_y, g_degree ) + motor_output_turn;
-					motor_output_b	= get_motor_output_b( Motor_output_x, Motor_output_y, g_degree ) + motor_output_turn;
-				//}
-
-				if( g_start_switch == 0  || stop_flag >= 100 || CROSS_SW >= 2 ){
-					motor_output_l	= 0;
-					motor_output_r	= 0;
-					motor_output_b	= 0;
-					free_output();
-				}
+					#endif //©“®ƒ‚[ƒh³•ûŒ`‚©‰~
+					
+				#elif OUTPUT_MODE == CALIBRATION
+					motor_output_turn = pd_rock( g_degree , 0 );
+					
+				#endif//è“®‚©©“®‚©ƒLƒƒƒŠƒuƒŒ‚©
 				
-				if( stop_flag >= 100 ){
-					g_start_switch	= 0;
-					LED_P8				= 0;
-					buzzer_cycle( 0.5 );
-				}
-				
-				if( task >= 5 ){
-					free_output();
-				}
-				
-				Move( motor_output_l , motor_output_r , motor_output_b );
 			}//start_switch
-			
-			if( g_time >= 0.01 ){
-				g_time = 0;
-				//sprintf(str,"%d \n\r", task );
-				//sprintf(str,"%d, %.4f, %.4f, %.4f,\n\r", task, g_now_x, g_now_y, g_degree );
-				//sprintf(str,"%d, %.4f, %.4f, %.4f, %.4f, %.4f\n\r", task, g_now_x, g_now_y, g_degree, next_degree, future_degree );
-				//sprintf(str,"%d, %f \n\r", g_start_switch ,  g_stop_time );
-				//sprintf(str,"%.4f ,%.4f,%d\n\r", vertical_distance , horizontal_distance , task );
-				//sprintf(str,"%d \n\r", stop_flag );
-				//sprintf(str,"%.4f,%.4f,%.4f,%.4f,%.4f\n\r", g_now_x , g_now_y , g_x_c ,g_y_c , g_degree );
-				//sprintf(str,"%.4f ,%.4f \n\r", g_degree , g_Rate_f );
-				//sprintf(str,"%.4f ,\n\r", target_degree );
-				//sprintf(str,"%d %d, %d,\n\r", mtu1_count() , mtu2_count() ,mtu8_count() );
-				//sprintf(str," %.4f, %.4f, %.4f, %.4f, %.4f, %.4f, %.4f, %.4f, %.4f, %.4f, %.4f, %.4f, %.4f, %.4f, %.4f, %.4f, %.4f, %.4f, \n\r", LEFT_STICK_WIDE , LEFT_STICK_HIGH , RIGHT_STICK_WIDE , RIGHT_STICK_HIGH, UP_SW , RIGHT_SW, DOWN_SW , LEFT_SW , TRIANGLE_SW , CIRCLE_SW , CROSS_SW , SQUARE_SW	, START_SELECT_SW , PS_SW, ACC_X, ACC_Y,ACC_Z);
-				//sprintf(str," %.4f , %.4f , %.4f , %.4f , %.4f , %d, %d ,\n\r", LEFT_STICK_WIDE , LEFT_STICK_HIGH , RIGHT_STICK_WIDE , ACC_X , ACC_Y , motor_output_l , stop_flag );
-				//sprintf(str," %.4f , %.4f , %.4f %.4f, \n\r", LEFT_STICK_WIDE , LEFT_STICK_HIGH , RIGHT_STICK_WIDE , START_SELECT_SW);
-				//sprintf(str,"%.4f %.4f, %.4f,\n\r", ENCF() , ENCL() ,ENCR() );
-				//sprintf( str,"%.4f,%f,%d,%d,%d,\n\r",g_Rate_f,g_Angle_f,g_X_acc,g_Y_acc,g_Z_acc );
-				//sprintf(str,"%.4f, \n\r",  motor_output_turn);
-				//sprintf( str,"%.4f, %.4f, %.4f , %.4f, %.4f, %.4f, %.4f\n\r", motor_output_l, motor_output_r, motor_output_b , g_velocity , target_velocity, Motor_output_x , Motor_output_y );
-				//transmit( str );
+		
+			if( g_start_switch == 0  || stop_flag >= 100 || ps_switch == 1){
+				motor_output_l	= 0.00;
+				motor_output_r	= 0.00;
+				motor_output_b	= 0.00;
+				motor_output_turn = 0.00;
+				free_output();
 			}
+			
+			if( stop_flag >= 100 ){
+				g_start_switch	= 0;
+				LED_P8		= 0;
+				buzzer_cycle( 0.5 );
+			}
+			
+			if( g_start_switch == 1 ){
+				#if OUTPUT_MODE == CALIBRATION
+					Move( motor_output_turn , motor_output_turn , motor_output_turn );
+				#else
+					Move( motor_output_l + motor_output_turn , motor_output_r + motor_output_turn , motor_output_b + motor_output_turn );
+				#endif
+			}else{
+				Move( 0 , 0 , 0 );
+			}
+			
+			#if SERIAL_MODE == ON
+				if( g_time >= 0.01 ){
+					g_time = 0;
+					
+					/*if( mileage_flag	== 0 ){
+						sprintf(str,",%f ,\n\r", g_velocity );
+					}else{
+						sprintf(str,", mileage,%f ,\n\r", old_mileage );
+					}*/
+					
+					//sprintf(str,"%d \n\r", task );
+					//sprintf(str,"%d, %.4f, %.4f, %.4f,\n\r", task, g_now_x, g_now_y, g_degree );
+					//sprintf(str,"%d, %.4f, %.4f, %.4f, %.4f, %.4f\n\r", task, g_now_x, g_now_y, g_degree, next_degree, future_degree );
+					//sprintf(str,"%d, %f \n\r", g_start_switch , g_stop_time );
+					//sprintf(str,"%.4f ,%.4f,%d\n\r", vertical_distance , horizontal_distance , task );
+					//sprintf(str,"%d \n\r", stop_flag );
+					//sprintf(str," ,%.4f, %.4f, %.4f, %.4f, \n\r", g_now_x , g_now_y , g_x_c , g_y_c );
+					sprintf(str,",%.4f ,%.4f \n\r", g_degree , g_Rate_f );
+					//sprintf(str,",%f ,\n\r", g_velocity );
+					//sprintf(str,"%d, %d, %d,\n\r", mtu1_count() , mtu2_count() ,mtu8_count() );
+					//sprintf(str," %.4f, %.4f, %.4f, %.4f, %.4f, %.4f, %.4f, %.4f, %.4f, %.4f, %.4f, %.4f, %.4f, %.4f, %.4f, %.4f, %.4f, %.4f, \n\r", LEFT_STICK_WIDE , LEFT_STICK_HIGH , RIGHT_STICK_WIDE , RIGHT_STICK_HIGH, UP_SW , RIGHT_SW, DOWN_SW , LEFT_SW , TRIANGLE_SW , CIRCLE_SW , CROSS_SW , SQUARE_SW	, START_SELECT_SW , PS_SW, ACC_X, ACC_Y,ACC_Z);
+					//sprintf(str," %.4f , %.4f , %.4f , %.4f , %.4f , %d, %d ,\n\r", LEFT_STICK_WIDE , LEFT_STICK_HIGH , RIGHT_STICK_WIDE , ACC_X , ACC_Y , motor_output_l , stop_flag );
+					//sprintf(str," %.4f , %.4f , %.4f %.4f, \n\r", LEFT_STICK_WIDE , LEFT_STICK_HIGH , RIGHT_STICK_WIDE , START_SELECT_SW);
+					//sprintf(str,"%.4f %.4f, %.4f,\n\r", ENCF() , ENCL() ,ENCR() );
+					//sprintf( str,"%.4f,%f,%d,%d,%d,\n\r",g_Rate_f,g_Angle_f,g_X_acc,g_Y_acc,g_Z_acc );
+					//sprintf(str,"%.4f, \n\r",  motor_output_turn);
+					//sprintf( str,"%.4f, %.4f, %.4f , %.4f, %.4f, %.4f, %.4f\n\r", motor_output_l, motor_output_r, motor_output_b, g_velocity , target_velocity, Motor_output_x , Motor_output_y );
+					transmit( str , 1);
+				}
+			#endif
 		}//INTERRUPT_TIME
 	}//while(1)
 }//main
@@ -742,28 +708,33 @@ void Rspi_recive_send_line_dualshock(void)	//DualShockƒAƒiƒƒOƒRƒ“ƒgƒ[ƒ‰(ƒAƒiƒ
 	g_controller_receive_3rd = Rspi_send_short_1(0x00);
 }
 
-void transmit( char str[ ])
+void transmit( char str[ ] , int ch)
 {
 	int z = 0;
-
-	while( str[ z ] != '\0' ){
-		if( SCI1.SSR.BIT.TDRE == 1 ){														//TDREƒŒƒWƒXƒ^‚©‚çTDREƒŒƒWƒXƒ^‚Éƒf[ƒ^‚ª“]‘—‚³‚ê‚½‚Æ‚«
-			SCI1.TDR = str[ z ];
-			z ++;
-			SCI1.SSR.BIT.TDRE = 0;
+	
+	if( ch == 0 ){
+		while( str[ z ] != '\0' ){
+			if( SCI0.SSR.BIT.TDRE == 1 ){														//TDREƒŒƒWƒXƒ^‚©‚çTDREƒŒƒWƒXƒ^‚Éƒf[ƒ^‚ª“]‘—‚³‚ê‚½‚Æ‚«
+				SCI0.TDR = str[ z ];
+				z ++;
+				SCI0.SSR.BIT.TDRE = 0;
+			}
 		}
-	}
-}
-
-void transmit_2( char str[ ])
-{
-	int z = 0;
-
-	while( str[ z ] != '\0' ){
-		if( SCI2.SSR.BIT.TDRE == 1 ){														//TDREƒŒƒWƒXƒ^‚©‚çTDREƒŒƒWƒXƒ^‚Éƒf[ƒ^‚ª“]‘—‚³‚ê‚½‚Æ‚«
-			SCI2.TDR = str[ z ];
-			z ++;
-			SCI2.SSR.BIT.TDRE = 0;
+	}else if( ch == 1 ){
+		while( str[ z ] != '\0' ){
+			if( SCI1.SSR.BIT.TDRE == 1 ){														//TDREƒŒƒWƒXƒ^‚©‚çTDREƒŒƒWƒXƒ^‚Éƒf[ƒ^‚ª“]‘—‚³‚ê‚½‚Æ‚«
+				SCI1.TDR = str[ z ];
+				z ++;
+				SCI1.SSR.BIT.TDRE = 0;
+			}
+		}
+	}else if( ch == 2 ){
+		while( str[ z ] != '\0' ){
+			if( SCI2.SSR.BIT.TDRE == 1 ){														//TDREƒŒƒWƒXƒ^‚©‚çTDREƒŒƒWƒXƒ^‚Éƒf[ƒ^‚ª“]‘—‚³‚ê‚½‚Æ‚«
+				SCI2.TDR = str[ z ];
+				z ++;
+				SCI2.SSR.BIT.TDRE = 0;
+			}
 		}
 	}
 }
@@ -873,7 +844,7 @@ void move_left_tire( float left_duty )
 		LEFT_TIRE_CCW 	= 1;
 		left_duty *= ( -1 );
 	 	if( i == 0 ){
-			 g_left_duty_time = 0;
+			g_left_duty_time = 0;
 		}
 		i = 1;
 	}
@@ -889,9 +860,10 @@ void move_left_tire( float left_duty )
 	
 	left_duty_sub = fabs( left_duty - old_duty );
 	
-	if( left_duty_sub >= 20 ){
-		left_duty = old_duty;
-	}	
+	if( left_duty_sub > 5 ){
+		left_duty = (old_duty + left_duty) / 2;
+	}
+	
 	old_duty = left_duty;
 	
 	left_duty = Limit_ul( MAX_DUTY , 0 , left_duty );
@@ -937,9 +909,10 @@ void move_right_tire( float right_duty )
 	
 	right_duty_sub = fabs( right_duty - old_duty );
 	
-	if( right_duty_sub >= 20 ){
-		right_duty = old_duty;
+	if( right_duty_sub > 5 ){
+		right_duty = (old_duty + right_duty ) /2;
 	}
+	
 	old_duty = right_duty;
 	
 	right_duty = Limit_ul( MAX_DUTY , 0 , right_duty );
@@ -985,9 +958,10 @@ void move_back_tire( float back_duty )
 	
 	back_duty_sub = fabs( back_duty - old_duty );
 	
-	if( back_duty_sub >= 20 ){
-		back_duty = old_duty;
-	}	
+	if( back_duty_sub > 5 ){
+		back_duty = ( old_duty + back_duty ) / 2;
+	}
+	
 	old_duty = back_duty;
 	
 	back_duty = Limit_ul( MAX_DUTY , 0 , back_duty );
@@ -1045,7 +1019,8 @@ float get_motor_output_r(float motor_output_x,float motor_output_y,float degree_
 		degree_reverse_x = 180.0;
 	}else{
 		degree_reverse_x = 0.0;
-		}
+	}
+	
 	if(motor_output_y < 0.0){
 		degree_reverse_y = 180.0;
 	}else{
@@ -1076,7 +1051,8 @@ float get_motor_output_b(float motor_output_x,float motor_output_y,float degree_
 		degree_reverse_x = 180.0;
 	}else{
 		degree_reverse_x = 0.0;
-		}
+	}
+	
 	if(motor_output_y < 0.0){
 		degree_reverse_y = 180.0;
 	}else{
@@ -1129,7 +1105,7 @@ void input_R1350N(void)
 		read_start = OFF;
 		i = 0;
 		sprintf(str,"0xAA not found");
-		transmit(str);
+		transmit( str , 1);
 	}
 	
 	if(read_start == ON){
@@ -1142,7 +1118,7 @@ void input_R1350N(void)
 			//ƒpƒPƒbƒg‚Ìƒwƒbƒ_[î•ñ‚ğŠm”F‚·‚é
 			if(receive_pac[0] != 0xAA){
 				sprintf(str, "Heading ERROR");
-				transmit(str);
+				transmit( str, 1);
 			}
 			
 			//ƒf[ƒ^‚ğ‘g‚İ—§‚Ä‚é
@@ -1161,7 +1137,7 @@ void input_R1350N(void)
 			
 			if(check_sum != receive_pac[14]){
 				sprintf(str, "Check_Sum ERROR");
-				transmit(str);
+				transmit( str, 1 );
 			}
 			
 			//Šp“x‚ÆŠp‘¬“x‚Ì’PˆÊ‚ğ’Êí’liŒ³‚É–ß‚µƒf[ƒ^‚ğ‹L‰¯‚·‚é
@@ -1233,7 +1209,7 @@ int checksum_r1350n(char *str)
 		}
 	}else{
 		sprintf(str,"CMD_ERROR");
-		transmit(str);
+		transmit( str, 1 );
 	}
 
 	return (p&0xFF);
@@ -1279,7 +1255,7 @@ float change_float(char *str){
         n=n*10+str[i]-'0';
         i++;
     }
-    return(n);
+	return(n);
 }
 
 //‰ğÍ‚µ‚½–½—ß‚É‰‚¶‚Ä”’l‚ğƒOƒ[ƒoƒ‹•Ï”‚ÉŠi”[‚·‚éŠÖ”	‰º‚ÌŠÖ”‚Ì‘±‚«‚İ‚½‚¢‚È
@@ -1508,6 +1484,9 @@ void initialization( void )
 	MTU1.TCNT	= 0;
 	MTU2.TCNT	= 0;
 	MTU8.TCNT	= 0;
+	g_now_x	= 0.00;
+	g_now_y	= 0.00;
+	g_degree	= 0.00;
 	g_Rate		= 0;
 	g_Angle		= 0;
 	g_X_acc 	= 0;
@@ -1515,9 +1494,6 @@ void initialization( void )
 	g_Z_acc 	= 0;
 	g_Rate_f	= 0.00;
 	g_Angle_f	= 0.00;
-	g_now_x	= 0.00;
-	g_now_y	= 0.00;
-	g_degree	= 0.00;
 }
 
 /******************************************************************************
@@ -1535,13 +1511,13 @@ float get_present_target_dis( float deviation_x , float deviation_y )
 
 /******************************************************************************
 *	ƒ^ƒCƒgƒ‹ F –Ú•W‚ÆŒ»İ‚ÌÀ•W‚Ì•Î·‚ÌŠp“x
-*	  ŠÖ”–¼ F get_target_degrere
+*	  ŠÖ”–¼ F get_target_degree
 *	   ˆø”1 F floatŒ^ deviation_x  –Ú•W‚ÌxÀ•W‚ÆŒ»İ‚ÌxÀ•W‚Ì•Î·
 *	   ˆø”2 F floatŒ^ deviation_y  –Ú•W‚ÌyÀ•W‚ÆŒ»İ‚ÌyÀ•W‚Ì•Î·
 *	  ì¬Ò F ¬‹{—z¶
 *	  ì¬“ú F 2014/09/19
 ******************************************************************************/
-float get_target_degrere( float deviation_x , float deviation_y )
+float get_target_degree( float deviation_x , float deviation_y )
 {	
 	float target_degree = 0.00;
 	
@@ -1552,23 +1528,20 @@ float get_target_degrere( float deviation_x , float deviation_y )
 	return ( target_degree );
 }
 
-float get_horizontal_distance( float future_degree , float now_degree , float distance )
+float get_horizontal_distance( float future_degree , float degree , float distance )
 {
-	float	horizontal_distance	= 0.00,
-			deviation_degree	= 0.00;
-
-	deviation_degree = gap_degree( future_degree - now_degree );
+	float	horizontal_distance	= 0.00;
 	
-	if( deviation_degree > 90 ){
-     	deviation_degree	= 180 - deviation_degree;
-     	horizontal_distance	= ( -1 ) * distance * sin( deviation_degree * ( M_PI / 180) );
+	if( degree > 90 ){
+     	degree	= 180 - degree;
+     	horizontal_distance	= ( -1 ) * distance * sin( degree * ( M_PI / 180) );
   
-	}else if( deviation_degree < -90 ){
-		deviation_degree	= deviation_degree * ( -1 ) - 180;
-   		horizontal_distance	= ( -1 ) * distance * sin( deviation_degree * (M_PI / 180 ) );
+	}else if( degree < -90 ){
+		degree	= degree * ( -1 ) - 180;
+   		horizontal_distance	= ( -1 ) * distance * sin( degree * (M_PI / 180 ) );
 	
 	}else{
-		horizontal_distance	= distance * sin( deviation_degree * ( M_PI / 180 ) );
+		horizontal_distance	= distance * sin( degree * ( M_PI / 180 ) );
 	}
 	return (horizontal_distance );
 }
@@ -1582,23 +1555,20 @@ float get_horizontal_distance( float future_degree , float now_degree , float di
 *	  ì¬Ò F ¬‹{—z¶
 *	  ì¬“ú F 2014/09/19
 ******************************************************************************/
-float get_vertical_distance( float future_degree , float now_degree , float distance )
+float get_vertical_distance( float future_degree , float degree , float distance )
 {
-	float	vertical_distance	= 0.00,
-			deviation_degree	= 0.00;
-
-	deviation_degree = gap_degree( future_degree - now_degree );
+	float	vertical_distance	= 0.00;
 	
-	if( deviation_degree > 90 ){
-     	deviation_degree	= 180 - deviation_degree;
-     	vertical_distance	= ( -1 ) * distance * cos( deviation_degree * ( M_PI / 180) );
+	if( degree > 90 ){
+     	degree	= 180 - degree;
+     	vertical_distance	= ( -1 ) * distance * cos( degree * ( M_PI / 180) );
   
-	}else if( deviation_degree < -90 ){
-		deviation_degree	= deviation_degree * ( -1 ) - 180;
-   		vertical_distance	= ( -1 ) * distance * cos( deviation_degree * (M_PI / 180 ) );
+	}else if( degree < -90 ){
+		degree	= degree * ( -1 ) - 180;
+   		vertical_distance	= ( -1 ) * distance * cos( degree * (M_PI / 180 ) );
 	
 	}else{
-		vertical_distance	= distance * cos( deviation_degree * ( M_PI / 180 ) );
+		vertical_distance	= distance * cos( degree * ( M_PI / 180 ) );
 	}
 	return ( vertical_distance );
 }
@@ -1689,6 +1659,158 @@ float get_motor_output_y( float straight , float target_degree )
 	Motor_output_y = fabs( straight ) * sin( D_TO_R( gap_degree( target_degree + degree_reverse ) ) );
 
 	return( Motor_output_y );
+}
+
+void position_rock(float target_x, float target_y, float now_x, float now_y, float now_degree )
+{
+	float	output				= 0.00,
+			output_x			= 0.00,
+			output_y			= 0.00;
+	float	p_gain				= 0.03,
+			d_gain				= 0.30;
+	float	now_gap			= 0.00;
+	float target_degree		= 0.00;
+	
+	static float old_gap		= 0.00,
+					old_output	= 0.00;
+		
+	now_gap = get_present_target_dis( target_x - now_x, target_y - now_y );
+	
+	output = ( p_gain * now_gap ) + ( d_gain * ( now_gap - old_gap ) );
+	
+	old_gap = now_gap;
+	
+	if( fabs( output - old_output ) > 1.0 ){
+		output = ( output + old_output ) / 2;
+	}
+	
+	old_output = output;
+	
+	target_degree = get_target_degree(target_x - now_x , target_y - now_y );
+	
+	output_x = output * cos( D_TO_R( gap_degree( target_degree ) ) );
+	output_y = output * sin( D_TO_R( gap_degree( target_degree ) ) );
+	
+	g_motor_output_l	= get_motor_output_l( output_x, output_y, now_degree );
+	g_motor_output_r	= get_motor_output_r( output_x, output_y, now_degree );
+	g_motor_output_b	= get_motor_output_b( output_x, output_y, now_degree );
+}
+
+void calculate( void )
+{
+	float	enc_dis_f				= 0.00,
+			enc_dis_r				= 0.00,
+			enc_dis_l				= 0.00,
+			enc_dis_subt_f		= 0.00,
+			enc_dis_subt_r		= 0.00,
+			enc_dis_subt_l		= 0.00,
+			radian_f					= 0.00,
+			radian_r					= 0.00,
+			radian_l					= 0.00,
+			degree_reverse_f	= 0.00,
+			degree_reverse_r	= 0.00,
+			degree_reverse_l 	= 0.00,
+			velocity_x				= 0.00,
+			velocity_y				= 0.00;
+			
+	static float	enc_x_f				= 0.00,
+					enc_y_f				= 0.00,
+					enc_x_r				= 0.00,
+					enc_y_r				= 0.00,
+					enc_x_l				= 0.00,
+					enc_y_l				= 0.00,
+					old_x					= 0.00,
+					old_y					= 0.00,
+					degree				= 0.00,
+					old_degree		= 0.00,
+					old_enc_dis_f		= 0.00,
+					old_enc_dis_r	= 0.00,
+					old_enc_dis_l		= 0.00,
+					old_velocity		= 0.00;
+					
+	enc_dis_f = ( -1 ) * ENC_DIAMETER_F * M_PI * ( ENCF() / PULSE );
+	enc_dis_r = ENC_DIAMETER_R * M_PI * ( ENCR() / PULSE );
+	enc_dis_l = ENC_DIAMETER_L * M_PI * ( ENCL() / PULSE );
+	
+	enc_dis_subt_f = enc_dis_f - old_enc_dis_f;
+	enc_dis_subt_r = enc_dis_r - old_enc_dis_r;
+	enc_dis_subt_l = enc_dis_l - old_enc_dis_l;
+	
+	if( fabs(enc_dis_subt_f) >=  100 || fabs(enc_dis_subt_r) >=  100 || fabs(enc_dis_subt_l) >=  100 ){
+		g_start_switch = 0;
+	}
+	
+	radian_f = enc_dis_subt_f / CENTER_TO_ENC;
+	radian_r = enc_dis_subt_r / CENTER_TO_ENC;
+	radian_l = enc_dis_subt_l / CENTER_TO_ENC;
+
+	degree += R_TO_D( ( radian_f + radian_r + radian_l ) / 3 );
+	
+	if( fabs( degree >= 360 * 5 ) ){
+		g_start_switch = 0;
+	}
+	
+	g_degree = gap_degree( degree );
+	
+	if( enc_dis_subt_f < 0 ){
+		 degree_reverse_f = 180.0;
+	}
+	if( enc_dis_subt_r < 0 ){
+		degree_reverse_r = 180.0;
+	}
+	if( enc_dis_subt_l < 0 ){
+		degree_reverse_l = 180.0;
+	}
+
+	/*//â‰º‚³‚ñ
+	//OŠpŒ`‚Ì’¸“_‚ÌÀ•W‚ğZo
+	g_vertex_b_x += (fabs(enc_dis_subt_r) * cos(D_TO_R( gap_degree( g_degree  + (degree_reverse_r - 30 )))) + fabs(enc_dis_subt_l) * cos(D_TO_R( gap_degree(g_degree + (degree_reverse_l - 150)))));
+	g_vertex_b_y += (fabs(enc_dis_subt_r) * sin(D_TO_R( gap_degree(g_degree  + (degree_reverse_r - 30 )))) + fabs(enc_dis_subt_l) * sin(D_TO_R( gap_degree(g_degree  + (degree_reverse_l - 150)))));
+	g_vertex_l_x += (fabs(enc_dis_subt_l) * cos(D_TO_R( gap_degree(g_degree - 150.0 + degree_reverse_l ))) + fabs(enc_dis_subt_f) * cos(D_TO_R( gap_degree(g_degree + 90.0 + degree_reverse_f))));
+	g_vertex_l_y += (fabs(enc_dis_subt_l) * sin(D_TO_R( gap_degree(g_degree - 150.0 + degree_reverse_l ))) + fabs(enc_dis_subt_f) * sin(D_TO_R( gap_degree(g_degree + 90.0 + degree_reverse_f))));
+	g_vertex_r_x += (fabs(enc_dis_subt_f) * cos(D_TO_R( gap_degree(g_degree + 90.0 + degree_reverse_f ))) + fabs(enc_dis_subt_r) * cos(D_TO_R( gap_degree( g_degree + (degree_reverse_r - 30)))));
+	g_vertex_r_y += (fabs(enc_dis_subt_f) * sin(D_TO_R( gap_degree(g_degree + 90.0 + degree_reverse_f ))) + fabs(enc_dis_subt_r) * sin(D_TO_R( gap_degree(g_degree + (degree_reverse_r - 30)))));
+	
+	g_x_c = (g_vertex_b_x + g_vertex_l_x + g_vertex_r_x) / 3;
+	g_y_c = (g_vertex_b_y + g_vertex_l_y + g_vertex_r_y) / 3;*/
+	
+	//©•ª
+	enc_x_f += 2 * fabs( enc_dis_subt_f ) * cos( D_TO_R( gap_degree( 90 + g_degree + degree_reverse_f ) ) );
+	enc_y_f += 2 * fabs( enc_dis_subt_f ) * sin( D_TO_R( gap_degree( 90 + g_degree +degree_reverse_f ) ) );
+	enc_x_r += 2 * fabs( enc_dis_subt_r ) * cos( D_TO_R( gap_degree( -30 + g_degree + degree_reverse_r ) ) );
+	enc_y_r += 2 * fabs( enc_dis_subt_r ) * sin( D_TO_R( gap_degree(-30 + g_degree + degree_reverse_r ) ) );
+	enc_x_l += 2 * fabs( enc_dis_subt_l ) * cos( D_TO_R( gap_degree( 30 + 180 + g_degree + degree_reverse_l ) ) );
+	enc_y_l += 2 * fabs( enc_dis_subt_l ) * sin( D_TO_R( gap_degree( 30 + 180 + g_degree + degree_reverse_l ) ) );
+
+	g_now_x = ( enc_x_f + enc_x_r + enc_x_l ) / 3;
+	g_now_y = ( enc_y_f + enc_y_r + enc_y_l ) / 3;
+	
+	old_enc_dis_f = enc_dis_f;
+	old_enc_dis_r = enc_dis_r;
+	old_enc_dis_l = enc_dis_l;
+	
+	velocity_x	=( g_now_x - old_x ) / INTERRUPT_TIME;
+	velocity_y	=( g_now_y - old_y ) / INTERRUPT_TIME;
+	
+	g_velocity	= sqrt( ( velocity_x * velocity_x ) + ( velocity_y * velocity_y ) );
+	
+	g_angular_velocity = ( gap_degree(g_degree - old_degree) ) / INTERRUPT_TIME;
+	
+	#ifndef Debug1
+		if( g_start_switch == 0 ){
+			degree = 0;
+			enc_x_f = 0;
+			enc_y_f = 0;
+			enc_x_r = 0;
+			enc_y_r = 0;
+			enc_x_l = 0;
+			enc_y_l = 0;
+		}
+	#endif
+	
+	old_x = g_now_x;
+	old_y = g_now_y;
+	old_degree = g_degree; 
 }
 
 #ifdef __cplusplus
