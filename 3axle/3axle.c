@@ -35,6 +35,9 @@ void abort(void);
 #define SQUARE					1	//³•ûŒ`‘–s
 #define CIRCLE						2	//‰~‘–s
 
+//ƒVƒŠƒAƒ‹’ÊM
+#define MODE_SCIDATA_BOX 	6
+
 #define CALIBRATION			3	//ƒLƒƒƒŠƒuƒŒ
 #define MANUAL_CONTROL	4	//è“®‘€c
 #define AUTO_CONTROL		5	//©“®‘€c
@@ -100,7 +103,7 @@ void abort(void);
 #define STICK_NO_MOVE_RANGE 			0.2		//}20%
 
 /*ƒ‚[ƒ^[o—Í*/
-#define	FREE							4536478
+#define	FREE							99999
 
 /*ƒGƒ“ƒR[ƒ_ƒJƒEƒ“ƒg*/
 #define ENCF()						mtu8_count()
@@ -113,9 +116,9 @@ void abort(void);
 #define PULSE						2000.0
 
 /*ƒGƒ“ƒR[ƒ_ƒ^ƒCƒ„’¼Œa*/
-#define ENC_DIAMETER_F 		51.0//( 51.00901999 )//50.93722666//50.86543333//50.79364//51.0
-#define ENC_DIAMETER_L		51.0//( 51.43542 )//51.33956//51.2437//51.14784//51.0
-#define ENC_DIAMETER_R		51.0//( 51.13076 )//51.12364//51.11652//51.1094//51.0
+#define ENC_DIAMETER_F 		51.0//( 51.00901999 )
+#define ENC_DIAMETER_L		51.0//( 51.43542 )
+#define ENC_DIAMETER_R		51.0//( 51.13076 )
 
 #define BUZZER						PORT2.DR.BIT.B2
 
@@ -204,6 +207,26 @@ typedef struct Target
 	float x_c;
 	float y_c;
 }Target;
+
+typedef struct{
+	float x_now;
+	float y_now;
+	float degree;
+	float velocity;
+	float omega;
+}Robot;
+
+typedef struct{
+	float sci_data1;
+	float sci_data2;
+	float sci_data3;
+	float sci_data4;
+	float sci_data5;
+	float sci_data6;
+	float sci_data7;
+	float sci_data8;
+}Sci_data;
+
 
 /*ps2ƒRƒ“ƒf[ƒ^*/
 union psdate1{
@@ -303,7 +326,8 @@ float get_vertical_distance( float future_degree , float now_degree , float dist
 float get_target_velocity( float distance_rest , float vertical_distance , float a_up ,  float a_down );
 void free_output( void );
 void position_rock(float target_x, float target_y, float now_x, float now_y, float now_degree );
-void calculate( void );
+void get_robot_inf(void);
+void sci_transformer(Sci_data	*send);
 
 void initial_config( void )
 {
@@ -375,6 +399,8 @@ void main(void)
 
 	int ps_switch		= 0;
 	
+	Sci_data	send = {0.0};
+	
 	Target pattern[ 6 ] =
 		{	{ POSITION_X , POSITION_Y },
 			{ 1000 , 0 },
@@ -393,7 +419,7 @@ void main(void)
 		if( g_count_time >= INTERRUPT_TIME ){
 			g_count_time = 0;
 			
-			calculate(); //©ŒÈˆÊ’uŒvZ
+			get_robot_inf(); //©ŒÈˆÊ’uŒvZ
 			
 			#ifndef Debug2
 				stop_flag = stop_duty();
@@ -442,7 +468,7 @@ void main(void)
 						motor_output_r	= g_motor_output_r;
 						motor_output_b	= g_motor_output_b;
 						
-					}else{ 
+					}else{
 						motor_output_l	= get_motor_output_l( Motor_output_x, Motor_output_y, 0 );
 						motor_output_r	= get_motor_output_r( Motor_output_x, Motor_output_y, 0 );
 						motor_output_b	= get_motor_output_b( Motor_output_x, Motor_output_y, 0 );
@@ -579,7 +605,7 @@ void main(void)
 			}
 			
 			#if SERIAL_MODE == ON
-				if( g_time >= 0.01 ){
+				if( g_time >= 0.1 ){
 					g_time = 0;
 					
 					/*if( mileage_flag	== 0 ){
@@ -595,7 +621,7 @@ void main(void)
 					//sprintf(str,"%.4f ,%.4f,%d\n\r", vertical_distance , horizontal_distance , task );
 					//sprintf(str,"%d \n\r", stop_flag );
 					//sprintf(str," ,%.4f, %.4f, %.4f, %.4f, \n\r", g_now_x , g_now_y , g_x_c , g_y_c );
-					sprintf(str,",%.4f ,%.4f \n\r", g_degree , g_Rate_f );
+					//sprintf(str,",%.4f ,%.4f \n\r", g_degree , g_Rate_f );
 					//sprintf(str,",%f ,\n\r", g_velocity );
 					//sprintf(str,"%d, %d, %d,\n\r", mtu1_count() , mtu2_count() ,mtu8_count() );
 					//sprintf(str," %.4f, %.4f, %.4f, %.4f, %.4f, %.4f, %.4f, %.4f, %.4f, %.4f, %.4f, %.4f, %.4f, %.4f, %.4f, %.4f, %.4f, %.4f, \n\r", LEFT_STICK_WIDE , LEFT_STICK_HIGH , RIGHT_STICK_WIDE , RIGHT_STICK_HIGH, UP_SW , RIGHT_SW, DOWN_SW , LEFT_SW , TRIANGLE_SW , CIRCLE_SW , CROSS_SW , SQUARE_SW	, START_SELECT_SW , PS_SW, ACC_X, ACC_Y,ACC_Z);
@@ -605,7 +631,8 @@ void main(void)
 					//sprintf( str,"%.4f,%f,%d,%d,%d,\n\r",g_Rate_f,g_Angle_f,g_X_acc,g_Y_acc,g_Z_acc );
 					//sprintf(str,"%.4f, \n\r",  motor_output_turn);
 					//sprintf( str,"%.4f, %.4f, %.4f , %.4f, %.4f, %.4f, %.4f\n\r", motor_output_l, motor_output_r, motor_output_b, g_velocity , target_velocity, Motor_output_x , Motor_output_y );
-					transmit( str , 1);
+					//transmit( str , 1);
+					sci_transformer(&send);
 				}
 			#endif
 		}//INTERRUPT_TIME
@@ -708,7 +735,7 @@ void Rspi_recive_send_line_dualshock(void)	//DualShockƒAƒiƒƒOƒRƒ“ƒgƒ[ƒ‰(ƒAƒiƒ
 	g_controller_receive_3rd = Rspi_send_short_1(0x00);
 }
 
-void transmit( char str[ ] , int ch)
+/*void transmit( char str[ ] , int ch)
 {
 	int z = 0;
 	
@@ -735,6 +762,19 @@ void transmit( char str[ ] , int ch)
 				z ++;
 				SCI2.SSR.BIT.TDRE = 0;
 			}
+		}
+	}
+}
+*/
+
+void transmit( char str[ ])
+{
+	int z = 0;
+	while( str[ z ] != '\0' ){
+		if( SCI1.SSR.BIT.TDRE == 1 ){														//TDREƒŒƒWƒXƒ^‚©‚çTDREƒŒƒWƒXƒ^‚Éƒf[ƒ^‚ª“]‘—‚³‚ê‚½‚Æ‚«
+			SCI1.TDR = str[ z ];
+			z ++;
+			SCI1.SSR.BIT.TDRE = 0;
 		}
 	}
 }
@@ -776,13 +816,20 @@ float Limit_ul(float upper,float lower,float figure)
 
 float gap_degree( float degree )
 {
-	while( degree > 180 ){
+	/*while( degree > 180 ){
 		degree	= degree - 360;
 	}
 	while( degree < 180 * ( - 1 ) ){
 		degree	= degree + 360;
+	}*/
+	for( ; degree > 180; ){
+		degree -= 360;
 	}
-	return degree;
+
+	for(; degree < -180;){
+		degree += 360;
+	}
+	return ( degree );
 }
 
 float pd_rock( float present , float target )					//pd ’¼i’†‚ÌƒƒbƒN
@@ -1520,9 +1567,12 @@ float get_present_target_dis( float deviation_x , float deviation_y )
 float get_target_degree( float deviation_x , float deviation_y )
 {	
 	float target_degree = 0.00;
+	static float old_target_degree = 0.00;
 	
 	if( deviation_x !=0 || deviation_y != 0 ){
-		target_degree = gap_degree( atan2f( deviation_y , deviation_x) * ( 180 / M_PI ) );
+		target_degree = atan2f( deviation_y , deviation_x) * ( 180 / M_PI );
+	}else{
+		target_degree = old_target_degree;
 	}
 	
 	return ( target_degree );
@@ -1696,7 +1746,7 @@ void position_rock(float target_x, float target_y, float now_x, float now_y, flo
 	g_motor_output_b	= get_motor_output_b( output_x, output_y, now_degree );
 }
 
-void calculate( void )
+void get_robot_inf( void )
 {
 	float	enc_dis_f				= 0.00,
 			enc_dis_r				= 0.00,
@@ -1746,7 +1796,7 @@ void calculate( void )
 
 	degree += R_TO_D( ( radian_f + radian_r + radian_l ) / 3 );
 	
-	if( fabs( degree >= 360 * 5 ) ){
+	if( fabs( degree ) >= 360 * 5  ){
 		g_start_switch = 0;
 	}
 	
@@ -1812,6 +1862,65 @@ void calculate( void )
 	old_y = g_now_y;
 	old_degree = g_degree; 
 }
+
+/******************************************************************************
+*	ƒ^ƒCƒgƒ‹ F Excelˆ—‚Ì‚½‚ß‚Ìƒf[ƒ^‚ğƒVƒŠƒAƒ‹‘—M
+*	  ŠÖ”–¼ F sci_transformer
+*	  –ß‚è’l F voidŒ^ 
+*	    ˆø” F ‚È‚µ
+*	  ì¬Ò F áÁ‰ºNG
+*	  ì¬“ú F 2013/02/25
+******************************************************************************/
+void sci_transformer(Sci_data	*send)
+{	
+	#if MODE_SCIDATA_BOX != OFF
+		char 	sc1[50],sc2[50],sc3[50],sc4[50],sc5[50],sc6[50],sc7[50],sc8[50];
+	#endif
+	
+	#if MODE_SCIDATA_BOX >= 1
+		sprintf(sc1,"%f",(float)send->sci_data1);
+		transmit(",");
+		transmit(sc1);
+	#endif
+	#if MODE_SCIDATA_BOX >= 2
+		sprintf(sc2,"%f",(float)send->sci_data2);
+		transmit(",");
+		transmit(sc2);
+	#endif
+	#if MODE_SCIDATA_BOX >= 3
+		sprintf(sc3,"%f",(float)send->sci_data3);
+		transmit(",");
+		transmit(sc3);
+	#endif
+	#if MODE_SCIDATA_BOX >= 4
+		sprintf(sc4,"%f",(float)send->sci_data4);
+		transmit(",");
+		transmit(sc4);
+	#endif
+	#if MODE_SCIDATA_BOX >= 5
+		sprintf(sc5,"%f",(float)send->sci_data5);
+		transmit(",");
+		transmit(sc5);
+	#endif
+	#if MODE_SCIDATA_BOX >= 6
+		sprintf(sc6,"%5d",(long)send->sci_data6);
+		transmit(",");
+		transmit(sc6);		
+	#endif
+	#if MODE_SCIDATA_BOX >= 7
+		sprintf(sc7,"%5d",(long)send->sci_data7);
+		transmit(",");
+		transmit(sc7);
+	#endif
+	#if MODE_SCIDATA_BOX >= 8
+		sprintf(sc8,"%5d",(long)send->sci_data8);
+		transmit(",");
+		transmit(sc8);
+	#endif
+	
+	transmit("\n\r");
+}
+
 
 #ifdef __cplusplus
 void abort(void)
