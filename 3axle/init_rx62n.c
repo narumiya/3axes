@@ -5,7 +5,7 @@
 #define ON						1
 #define OFF						0
 #define BIT_RATE_0			115200
-#define BIT_RATE_1			115200
+#define BIT_RATE_1			9600
 #define BIT_RATE_2			115200
 #define PWM_PERIOD		((48000000/1)/100000)
 

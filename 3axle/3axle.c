@@ -32,7 +32,7 @@ void abort(void);
 #define D//ebug1		//ƒXƒ^[ƒgƒ{ƒ^ƒ“‰Ÿ‚·‘O‚Ì‰Šú‰»‚È‚µ
 #define D//ebug2		//ƒRƒ“ƒgƒ[ƒ‰[‚È‚µ‚ÅƒXƒ^[ƒg
 
-#define SQUARE					1	//³•ûŒ`‘–s
+#define ROUTE_SQUARE					1	//³•ûŒ`‘–s
 #define CIRCLE						2	//‰~‘–s
 
 //ƒVƒŠƒAƒ‹’ÊM
@@ -44,7 +44,7 @@ void abort(void);
 
 /*ƒ‚[ƒhØ‘Ö*/
 #define OUTPUT_MODE			MANUAL_CONTROL
-#define MODE						SQUARE
+#define ROUTE_MODE			SQUARE
 #define SERIAL_MODE			ON
 
 #define INTERRUPT_START	CMT.CMSTR0.BIT.STR0 = 1;//ƒJƒEƒ“ƒgŠJŽn
@@ -73,7 +73,7 @@ void abort(void);
 
 /*ŽÔ‘Ì‘€ì*/
 #define MAX_VELOCITY			400.0
-#define MAX_DUTY				95.0
+#define MAX_DUTY				g_max_duty
 #define PWM_PER					90.0
 #define OPERATE_DEGREE		180.0//120.0	//1000ms Max‚ÅƒXƒeƒbƒN‚ð“|‚µ‚½‚Æ‚«‚Ç‚ê‚¾‚¯‰ñ“]‚·‚é‚©i“xj
 
@@ -142,18 +142,18 @@ void abort(void);
 #define CROSS_SW					g_atoz_value[(int)('i' - 'a')]
 #define SQUARE_SW					g_atoz_value[(int)('j' - 'a')]
 #define START_SELECT_SW		g_atoz_value[(int)('k' - 'a')]
-#define PS_SW							g_atoz_value[(int)('l' - 'a')]
+#define PS_SW							g_atoz_value[(int)('l' - 'a')] 
 #define ACC_X							g_atoz_value[(int)('m' - 'a')]
 #define ACC_Y							g_atoz_value[(int)('n' - 'a')]
 #define ACC_Z							g_atoz_value[(int)('o' - 'a')]
 
 //ƒOƒ[ƒoƒ‹•Ï”‚ÉŠi”[‚·‚éê‡	‚¨‚Î‚©‚È—á
-float	g_atoz_value[26]	=	{	0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 
-											0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 
+float	g_atoz_value[26]	=	{	0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00,
+											0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00,
 											0.00, 0.00, 0.00, 0.00, 0.00, 0.00};
 								
-float	g_AtoZ_value[26]	=	{	0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 
-											0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 
+float	g_AtoZ_value[26]	=	{	0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00,
+											0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00,
 											0.00, 0.00, 0.00, 0.00, 0.00, 0.00};
 
 /*1msƒJƒEƒ“ƒg*/
@@ -197,6 +197,7 @@ float	g_now_x		= 0.00,
 		g_angular_velocity = 0.00;
 		
 /*Å‘å‘¬“x*/
+float	g_max_duty = 30;	
 float  g_max_velocity = MAX_VELOCITY;
 float	g_motor_output_l = 0.00,
 		g_motor_output_r = 0.00,
@@ -213,7 +214,6 @@ typedef struct{
 	float y_now;
 	float degree;
 	float velocity;
-	float omega;
 }Robot;
 
 typedef struct{
@@ -226,7 +226,6 @@ typedef struct{
 	float sci_data7;
 	float sci_data8;
 }Sci_data;
-
 
 /*ps2ƒRƒ“ƒf[ƒ^*/
 union psdate1{
@@ -295,7 +294,7 @@ char Receive_uart_c( void );
 float Limit_ul(float upper,float lower,float figure);
 void input_R1350N(void);
 int checksum_r1350n(char *str);
-float gap_degree( float degree );
+float revision_degree( float degree );
 float pd_rock( float present , float target );
 float pd_straight( float present , float target );
 void move_left_tire( float left_duty );
@@ -392,14 +391,16 @@ void main(void)
 	
 	float straight	=	0.00;
 	
-	int		task			= 1,
-			task_box	= 0,
-			mileage_flag = 0,
-			stop_flag	= 0;
+	int		task				= 1,
+			task_box		= 0,
+			mileage_flag	= 0,
+			stop_flag		= 0;
 
-	int ps_switch		= 0;
+	int		ps_switch		= 0,
+			up_switch		= 0,
+			down_switch	= 0;
 	
-	Sci_data	send = {0.0};
+	Sci_data send = {0.0};
 	
 	Target pattern[ 6 ] =
 		{	{ POSITION_X , POSITION_Y },
@@ -434,6 +435,14 @@ void main(void)
 				ps_switch = 1;
 			}
 			
+			if( UP_SW >= 2 ){
+				g_max_duty = 95;
+			}
+			
+			if(DOWN_SW >= 2){
+				g_max_duty = 50;
+			}
+			
 			#ifndef Debug1
 				if( g_start_switch == 0 ){
 					initialization();
@@ -459,7 +468,7 @@ void main(void)
 					Motor_output_y = straight_output_y();
 					//ŽÔ‘ÌŠp“x‘€ì
 					target_degree += turn_output();
-					target_degree = gap_degree( target_degree );
+					target_degree = revision_degree( target_degree );
 					
 					//‰EƒXƒeƒBƒbƒNA¶ƒXƒeƒBƒbƒN‘€ì‚È‚µŽž@~ƒ{ƒ^ƒ“‰Ÿ‚³‚ê‚½‚Æ‚«
 					if( (Motor_output_x == 0 && Motor_output_y == 0 && old_target_degree == target_degree ) || CROSS_SW >= 2){
@@ -489,7 +498,7 @@ void main(void)
 /***************Ž©“®ƒ‚[ƒh************************************/					
 				#elif OUTPUT_MODE == AUTO_CONTROL
 				/*********³•ûŒ`********/
-					#if MODE == SQUARE
+					#if ROUTE_MODE == SQUARE
 						//Œ»Ý’n‚©‚ç–Ú•WÀ•W‚ÌŠp“x
 						future_degree	= get_target_degree( pattern[ task ].x_c - g_now_x , pattern[ task ].y_c - g_now_y );
 						//¡‚Ì–Ú•W‚©‚çŽŸ‚Ì–Ú•W‚ÌŠp“x
@@ -558,10 +567,10 @@ void main(void)
 							break;
 						}
 			/************‰~**************/
-					#elif MODE == CIRCLE
+					#elif ROUTE_MODE == CIRCLE
 						//‰~‚Ì–Ú•WÀ•W
-						target_x = radius * ( cos( R_TO_D( gap_degree( theta ) ) ) + 1 );
-						target_y = radius * sin( R_TO_D( gap_degree( theta ) ));
+						target_x = radius * ( cos( R_TO_D( revision_degree( theta ) ) ) + 1 );
+						target_y = radius * sin( R_TO_D( revision_degree( theta ) ));
 
 						//Œ»Ý’n‚©‚ç–Ú•WÀ•W‚ÌŠp“x
 						future_degree	= get_target_degrere( target_x - g_now_x , target_y - g_now_y );
@@ -590,7 +599,7 @@ void main(void)
 			
 			if( stop_flag >= 100 ){
 				g_start_switch	= 0;
-				LED_P8		= 0;
+				LED_P8				= 0;
 				buzzer_cycle( 0.5 );
 			}
 			
@@ -632,6 +641,11 @@ void main(void)
 					//sprintf(str,"%.4f, \n\r",  motor_output_turn);
 					//sprintf( str,"%.4f, %.4f, %.4f , %.4f, %.4f, %.4f, %.4f\n\r", motor_output_l, motor_output_r, motor_output_b, g_velocity , target_velocity, Motor_output_x , Motor_output_y );
 					//transmit( str , 1);
+					send.sci_data1 = g_now_x;
+					send.sci_data2 = g_now_y;
+					send.sci_data3 = g_degree;
+					send.sci_data4 = g_Rate_f;
+					send.sci_data5 = g_velocity;
 					sci_transformer(&send);
 				}
 			#endif
@@ -770,6 +784,7 @@ void Rspi_recive_send_line_dualshock(void)	//DualShockƒAƒiƒƒOƒRƒ“ƒgƒ[ƒ‰(ƒAƒiƒ
 void transmit( char str[ ])
 {
 	int z = 0;
+	
 	while( str[ z ] != '\0' ){
 		if( SCI1.SSR.BIT.TDRE == 1 ){														//TDREƒŒƒWƒXƒ^‚©‚çTDREƒŒƒWƒXƒ^‚Éƒf[ƒ^‚ª“]‘—‚³‚ê‚½‚Æ‚«
 			SCI1.TDR = str[ z ];
@@ -814,7 +829,7 @@ float Limit_ul(float upper,float lower,float figure)
 	}
 }
 
-float gap_degree( float degree )
+float revision_degree( float degree )
 {
 	/*while( degree > 180 ){
 		degree	= degree - 360;
@@ -839,7 +854,7 @@ float pd_rock( float present , float target )					//pd ’¼i’†‚ÌƒƒbƒN
 			
 	static float old_deviation = 0.00;
 	
-	deviation = gap_degree( target - present );
+	deviation = revision_degree( target - present );
 	
 	output = ( ROCK_P_GAIN * deviation ) + ( ROCK_D_GAIN * ( deviation - old_deviation ) );
 
@@ -1042,7 +1057,8 @@ float get_motor_output_l(float motor_output_x,float motor_output_y,float degree_
 		degree_reverse_y = 0.0;
 	}
 	
-	motor_output_l = fabs(motor_output_x) * cos(D_TO_R(gap_degree(degree_now + (150.0 + degree_reverse_x)))) + fabs(motor_output_y) * sin(D_TO_R(gap_degree(degree_now + (150.0 + degree_reverse_y))));
+	motor_output_l = fabs(motor_output_x) * cos(D_TO_R(revision_degree(degree_now + (150.0 + degree_reverse_x)))) + fabs(motor_output_y) * sin(D_TO_R(revision_degree(degree_now + (150.0 + degree_reverse_y))));
+	
 	return(motor_output_l);
 }
 
@@ -1074,7 +1090,8 @@ float get_motor_output_r(float motor_output_x,float motor_output_y,float degree_
 		degree_reverse_y = 0.0;
 	}
 	
-	motor_output_r = fabs(motor_output_x) * cos(D_TO_R(gap_degree(degree_now +( 30.0 + degree_reverse_x)))) + fabs(motor_output_y) * sin(D_TO_R(gap_degree(degree_now + (30.0 + degree_reverse_y))));
+	motor_output_r = fabs(motor_output_x) * cos(D_TO_R(revision_degree(degree_now +( 30.0 + degree_reverse_x)))) + fabs(motor_output_y) * sin(D_TO_R(revision_degree(degree_now + (30.0 + degree_reverse_y))));
+	
 	return(motor_output_r);
 }
 
@@ -1106,7 +1123,8 @@ float get_motor_output_b(float motor_output_x,float motor_output_y,float degree_
 		degree_reverse_y = 0.0;
 	}
 	
-	motor_output_b = fabs(motor_output_x) * cos(D_TO_R(gap_degree(degree_now  + (degree_reverse_x - 90.0)))) + fabs(motor_output_y) * sin(D_TO_R(gap_degree(degree_now +( degree_reverse_y - 90.0))));
+	motor_output_b = fabs(motor_output_x) * cos(D_TO_R(revision_degree(degree_now  + (degree_reverse_x - 90.0)))) + fabs(motor_output_y) * sin(D_TO_R(revision_degree(degree_now +( degree_reverse_y - 90.0))));
+	
 	return(motor_output_b);
 }
 
@@ -1131,6 +1149,7 @@ void input_R1350N(void)
 	static unsigned char receive_pac[15] = {0};
 	static int read_start = OFF;
 	static float 	start_Rate_f	= 0.00;
+	static float old_rate_f		= 0.00;
 	unsigned int angle;
 	unsigned int rate;
 	unsigned int x_acc;
@@ -1152,7 +1171,7 @@ void input_R1350N(void)
 		read_start = OFF;
 		i = 0;
 		sprintf(str,"0xAA not found");
-		transmit( str , 1);
+		transmit( str );
 	}
 	
 	if(read_start == ON){
@@ -1165,7 +1184,7 @@ void input_R1350N(void)
 			//ƒpƒPƒbƒg‚Ìƒwƒbƒ_[î•ñ‚ðŠm”F‚·‚é
 			if(receive_pac[0] != 0xAA){
 				sprintf(str, "Heading ERROR");
-				transmit( str, 1);
+				transmit( str);
 			}
 			
 			//ƒf[ƒ^‚ð‘g‚Ý—§‚Ä‚é
@@ -1184,7 +1203,7 @@ void input_R1350N(void)
 			
 			if(check_sum != receive_pac[14]){
 				sprintf(str, "Check_Sum ERROR");
-				transmit( str, 1 );
+				transmit( str);
 			}
 			
 			//Šp“x‚ÆŠp‘¬“x‚Ì’PˆÊ‚ð’Êí’liŒ³‚É–ß‚µƒf[ƒ^‚ð‹L‰¯‚·‚é
@@ -1221,11 +1240,15 @@ void input_R1350N(void)
 					case 0:
 						if( g_Rate_f != 0.00 ){
 							flag = 1;
-							start_Rate_f = gap_degree( g_Rate_f );
+							start_Rate_f = revision_degree( g_Rate_f );
 						}break;
 					case 1:
-						g_Rate_f = ( -1 )*gap_degree( (gap_degree(  g_Rate_f ) - start_Rate_f ) );		
+						g_Rate_f = ( -1 )*revision_degree( (revision_degree(  g_Rate_f ) - start_Rate_f ) );		
 						break;
+				}
+				old_rate_f = g_Rate_f;
+				if( fabs(g_Rate_f - old_rate_f) >= 20 ){
+					g_Rate_f = old_rate_f;
 				}
 			}
 		}
@@ -1682,7 +1705,7 @@ float get_motor_output_x( float straight , float target_degree )
 		degree_reverse = 0.00;
 	}
 	
-	Motor_output_x = fabs( straight ) * cos( D_TO_R( gap_degree( target_degree + degree_reverse ) ) );
+	Motor_output_x = fabs( straight ) * cos( D_TO_R( revision_degree( target_degree + degree_reverse ) ) );
 
 	return( Motor_output_x );
 }
@@ -1706,7 +1729,7 @@ float get_motor_output_y( float straight , float target_degree )
 		degree_reverse = 0.00;
 	}
 	
-	Motor_output_y = fabs( straight ) * sin( D_TO_R( gap_degree( target_degree + degree_reverse ) ) );
+	Motor_output_y = fabs( straight ) * sin( D_TO_R( revision_degree( target_degree + degree_reverse ) ) );
 
 	return( Motor_output_y );
 }
@@ -1738,8 +1761,8 @@ void position_rock(float target_x, float target_y, float now_x, float now_y, flo
 	
 	target_degree = get_target_degree(target_x - now_x , target_y - now_y );
 	
-	output_x = output * cos( D_TO_R( gap_degree( target_degree ) ) );
-	output_y = output * sin( D_TO_R( gap_degree( target_degree ) ) );
+	output_x = output * cos( D_TO_R( revision_degree( target_degree ) ) );
+	output_y = output * sin( D_TO_R( revision_degree( target_degree ) ) );
 	
 	g_motor_output_l	= get_motor_output_l( output_x, output_y, now_degree );
 	g_motor_output_r	= get_motor_output_r( output_x, output_y, now_degree );
@@ -1800,7 +1823,7 @@ void get_robot_inf( void )
 		g_start_switch = 0;
 	}
 	
-	g_degree = gap_degree( degree );
+	g_degree = revision_degree( degree );
 	
 	if( enc_dis_subt_f < 0 ){
 		 degree_reverse_f = 180.0;
@@ -1814,23 +1837,23 @@ void get_robot_inf( void )
 
 	/*//â‰º‚³‚ñ
 	//ŽOŠpŒ`‚Ì’¸“_‚ÌÀ•W‚ðŽZo
-	g_vertex_b_x += (fabs(enc_dis_subt_r) * cos(D_TO_R( gap_degree( g_degree  + (degree_reverse_r - 30 )))) + fabs(enc_dis_subt_l) * cos(D_TO_R( gap_degree(g_degree + (degree_reverse_l - 150)))));
-	g_vertex_b_y += (fabs(enc_dis_subt_r) * sin(D_TO_R( gap_degree(g_degree  + (degree_reverse_r - 30 )))) + fabs(enc_dis_subt_l) * sin(D_TO_R( gap_degree(g_degree  + (degree_reverse_l - 150)))));
-	g_vertex_l_x += (fabs(enc_dis_subt_l) * cos(D_TO_R( gap_degree(g_degree - 150.0 + degree_reverse_l ))) + fabs(enc_dis_subt_f) * cos(D_TO_R( gap_degree(g_degree + 90.0 + degree_reverse_f))));
-	g_vertex_l_y += (fabs(enc_dis_subt_l) * sin(D_TO_R( gap_degree(g_degree - 150.0 + degree_reverse_l ))) + fabs(enc_dis_subt_f) * sin(D_TO_R( gap_degree(g_degree + 90.0 + degree_reverse_f))));
-	g_vertex_r_x += (fabs(enc_dis_subt_f) * cos(D_TO_R( gap_degree(g_degree + 90.0 + degree_reverse_f ))) + fabs(enc_dis_subt_r) * cos(D_TO_R( gap_degree( g_degree + (degree_reverse_r - 30)))));
-	g_vertex_r_y += (fabs(enc_dis_subt_f) * sin(D_TO_R( gap_degree(g_degree + 90.0 + degree_reverse_f ))) + fabs(enc_dis_subt_r) * sin(D_TO_R( gap_degree(g_degree + (degree_reverse_r - 30)))));
+	g_vertex_b_x += (fabs(enc_dis_subt_r) * cos(D_TO_R( revision_degree( g_degree  + (degree_reverse_r - 30 )))) + fabs(enc_dis_subt_l) * cos(D_TO_R( revision_degree(g_degree + (degree_reverse_l - 150)))));
+	g_vertex_b_y += (fabs(enc_dis_subt_r) * sin(D_TO_R( revision_degree(g_degree  + (degree_reverse_r - 30 )))) + fabs(enc_dis_subt_l) * sin(D_TO_R( revision_degree(g_degree  + (degree_reverse_l - 150)))));
+	g_vertex_l_x += (fabs(enc_dis_subt_l) * cos(D_TO_R( revision_degree(g_degree - 150.0 + degree_reverse_l ))) + fabs(enc_dis_subt_f) * cos(D_TO_R( revision_degree(g_degree + 90.0 + degree_reverse_f))));
+	g_vertex_l_y += (fabs(enc_dis_subt_l) * sin(D_TO_R( revision_degree(g_degree - 150.0 + degree_reverse_l ))) + fabs(enc_dis_subt_f) * sin(D_TO_R( revision_degree(g_degree + 90.0 + degree_reverse_f))));
+	g_vertex_r_x += (fabs(enc_dis_subt_f) * cos(D_TO_R( revision_degree(g_degree + 90.0 + degree_reverse_f ))) + fabs(enc_dis_subt_r) * cos(D_TO_R( revision_degree( g_degree + (degree_reverse_r - 30)))));
+	g_vertex_r_y += (fabs(enc_dis_subt_f) * sin(D_TO_R( revision_degree(g_degree + 90.0 + degree_reverse_f ))) + fabs(enc_dis_subt_r) * sin(D_TO_R( revision_degree(g_degree + (degree_reverse_r - 30)))));
 	
 	g_x_c = (g_vertex_b_x + g_vertex_l_x + g_vertex_r_x) / 3;
 	g_y_c = (g_vertex_b_y + g_vertex_l_y + g_vertex_r_y) / 3;*/
 	
 	//Ž©•ª
-	enc_x_f += 2 * fabs( enc_dis_subt_f ) * cos( D_TO_R( gap_degree( 90 + g_degree + degree_reverse_f ) ) );
-	enc_y_f += 2 * fabs( enc_dis_subt_f ) * sin( D_TO_R( gap_degree( 90 + g_degree +degree_reverse_f ) ) );
-	enc_x_r += 2 * fabs( enc_dis_subt_r ) * cos( D_TO_R( gap_degree( -30 + g_degree + degree_reverse_r ) ) );
-	enc_y_r += 2 * fabs( enc_dis_subt_r ) * sin( D_TO_R( gap_degree(-30 + g_degree + degree_reverse_r ) ) );
-	enc_x_l += 2 * fabs( enc_dis_subt_l ) * cos( D_TO_R( gap_degree( 30 + 180 + g_degree + degree_reverse_l ) ) );
-	enc_y_l += 2 * fabs( enc_dis_subt_l ) * sin( D_TO_R( gap_degree( 30 + 180 + g_degree + degree_reverse_l ) ) );
+	enc_x_f += 2 * fabs( enc_dis_subt_f ) * cos( D_TO_R( revision_degree( 90 + g_degree + degree_reverse_f ) ) );
+	enc_y_f += 2 * fabs( enc_dis_subt_f ) * sin( D_TO_R( revision_degree( 90 + g_degree +degree_reverse_f ) ) );
+	enc_x_r += 2 * fabs( enc_dis_subt_r ) * cos( D_TO_R( revision_degree( -30 + g_degree + degree_reverse_r ) ) );
+	enc_y_r += 2 * fabs( enc_dis_subt_r ) * sin( D_TO_R( revision_degree(-30 + g_degree + degree_reverse_r ) ) );
+	enc_x_l += 2 * fabs( enc_dis_subt_l ) * cos( D_TO_R( revision_degree( 30 + 180 + g_degree + degree_reverse_l ) ) );
+	enc_y_l += 2 * fabs( enc_dis_subt_l ) * sin( D_TO_R( revision_degree( 30 + 180 + g_degree + degree_reverse_l ) ) );
 
 	g_now_x = ( enc_x_f + enc_x_r + enc_x_l ) / 3;
 	g_now_y = ( enc_y_f + enc_y_r + enc_y_l ) / 3;
@@ -1844,7 +1867,7 @@ void get_robot_inf( void )
 	
 	g_velocity	= sqrt( ( velocity_x * velocity_x ) + ( velocity_y * velocity_y ) );
 	
-	g_angular_velocity = ( gap_degree(g_degree - old_degree) ) / INTERRUPT_TIME;
+	g_angular_velocity = ( revision_degree(g_degree - old_degree) ) / INTERRUPT_TIME;
 	
 	#ifndef Debug1
 		if( g_start_switch == 0 ){
