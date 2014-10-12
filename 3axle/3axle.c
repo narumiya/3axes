@@ -32,6 +32,9 @@ void abort(void);
 #define D//ebug1		//スタートボタン押す前の初期化なし
 #define D//ebug2		//コントローラーなしでスタート
 
+#define PS3							1
+#define	PS2							2
+
 #define ROUTE_SQUARE		1	//正方形走行
 #define CIRCLE						2	//円走行
 
@@ -48,6 +51,7 @@ void abort(void);
 #define OUTPUT_MODE			MANUAL_CONTROL
 #define ROUTE_MODE			SQUARE
 #define SERIAL_MODE			ON
+#define CONTROLLER				PS3
 
 #define INTERRUPT_START	CMT.CMSTR0.BIT.STR0 = 1;//カウント開始
 
@@ -96,9 +100,25 @@ void abort(void);
 #define BACK_TIRE_CCW		PORT7.DR.BIT.B2
 #define BACK_TIRE_DUTY		MTU6.TGRB
 
-#define M_DUTY					MTU6.TGRD
 #define	M_CW						PORT7.DR.BIT.B3
 #define	M_CCW						PORT7.DR.BIT.B1
+#define M_DUTY					MTU6.TGRD
+
+#define	M1_CW						PORT7.DR.BIT.B3
+#define	M1_CCW					PORT7.DR.BIT.B1
+#define M1_DUTY					MTU6.TGRD
+
+#define	M2_CW						PORT7.DR.BIT.B3
+#define	M2_CCW					PORT7.DR.BIT.B1
+#define M2_DUTY					MTU6.TGRD
+
+#define	M3_CW						PORT7.DR.BIT.B3
+#define	M3_CCW					PORT7.DR.BIT.B1
+#define M3_DUTY					MTU6.TGRD
+
+#define	M4_CW						PORT7.DR.BIT.B3
+#define	M4_CCW					PORT7.DR.BIT.B1
+#define M4_DUTY					MTU6.TGRD
 
 /*弧度法、度数法　変換*/
 #define M_PI							3.141592653
@@ -106,7 +126,11 @@ void abort(void);
 #define D_TO_R(x)				( x * ( M_PI / 180 ) )
 
 /*足回りが動かないスティックの値の範囲*/
-#define STICK_NO_MOVE_RANGE 			0.2		//±20%
+#if CONTROLLER == PS3
+	#define STICK_NO_MOVE_RANGE 			0.2		//±20%
+#elif CONTROLLER == PS2
+	#define STICK_NO_MOVE_RANGE 			0.4		//±40%
+#endif
 
 /*モーター出力*/
 #define	FREE							99999
@@ -290,7 +314,7 @@ float mtu8_count( void );
 unsigned long Rspi_send_1(unsigned long moji);
 unsigned long Rspi_send_short_1(unsigned short int moji);
 void Rspi_recive_send_line_dualshock(void);
-void transmit( char str[ ] , int ch);
+void transmit( char str[ ] );
 char Receive_uart_c( void );
 float Limit_ul(float upper,float lower,float figure);
 void input_R1350N(void);
@@ -315,9 +339,9 @@ void receive_order_c(char character);
 void receive_order_s(char *word);
 int stop_duty( void );
 void buzzer_cycle( float time );
-float straight_output_x( void );
-float straight_output_y( void );
-float turn_output( void );
+float straight_output_x( flaot );
+float straight_output_y( float );
+float turn_output( float );
 void initialization( void );
 float get_present_target_dis( float , float );
 float get_target_degree( float deviation_x , float deviation_y );
@@ -329,6 +353,10 @@ void position_rock(float target_x, float target_y, float now_x, float now_y, flo
 void get_robot_inf(void);
 void sci_transformer(Sci_data	*send);
 void move_m( float duty );
+void move_m1( float duty );
+void move_m2( float duty );
+void move_m3( float duty );
+void move_m4( float duty );
 
 void initial_config( void )
 {
@@ -339,7 +367,10 @@ void initial_config( void )
 	init_SCI1();
 	init_SCI2();
 	init_encorder();
-	//init_Rspi_dualshock();
+	
+	#if CONTROLLER == PS2
+		init_Rspi_dualshock();
+	#endif
 	
 	INTERRUPT_START
 }
@@ -355,11 +386,7 @@ void io_config( void )
 }
 
 void main(void)
-{
-	#if SERIAL_MODE == ON
-		char	str[30] = { 0 };
-	#endif
-	
+{	
 	float	Motor_output_x = 0.00,
 			Motor_output_y = 0.00;
 	
@@ -399,13 +426,16 @@ void main(void)
 	int		task				= 1,
 			task_box		= 0,
 			mileage_flag	= 0,
-			flag				= 0,
+			flag_square	= 0,
 			stop_flag		= 0;
 
-	int		ps_switch		= 0,
-			up_switch		= 0,
-			circle_switch	= 0,
-			down_switch	= 0;
+	int		ps_switch		= 0;
+			
+	#if CONTROLLER == PS2
+		union psdate1 getdate1;
+		union psdate2 getdate2;
+		union psdate3 getdate3;
+	#endif
 	
 	Sci_data send = {0.0};
 	
@@ -429,115 +459,176 @@ void main(void)
 			
 			get_robot_inf(); //自己位置計算
 			
-			#ifndef Debug2
-				stop_flag = stop_duty();
-			#endif
+		/*******PS3制御************/
+			#if CONTROLLER == PS3
 			
-			if( (int)START_SELECT_SW == 1 ){
-				LED_P81 = 1;
-				g_start_switch = 1;
-			}
-			
-			if( PS_SW == 1 ){
-				ps_switch = 1;
-			}
-			
-			if( UP_SW >= 2 ){
-				g_max_duty = 95;
-			}
-			
-			if(DOWN_SW >= 2){
-				g_max_duty = 50;
-			}
-			
-			#ifndef Debug1
-				if( g_start_switch == 0 ){
-					initialization();
-				}
-			#endif
-			
-			#ifdef Debug2
-				if( g_stop_time >= 6.00 ){
+				#ifndef Debug2
+					stop_flag = stop_duty();
+				#endif
+				
+				if( (int)START_SELECT_SW == 1 ){
+					LED_P81 = 1;
 					g_start_switch = 1;
-					BUZZER = 0;
-				}else{
-					buzzer_cycle( 1.00 );
+				}
+				
+				if( PS_SW == 1 ){
+					ps_switch = 1;
+				}
+				
+				if( UP_SW >= 1 && DOWN_SW == 0 ){
+					g_max_duty = 95;
+				}else if( UP_SW == 0 && DOWN_SW >= 1 ){
+					g_max_duty = 50;
+				}
+				
+				#ifndef Debug1
+					if( g_start_switch == 0 ){
+						initialization();
+					}
+				#endif
+				
+				#ifdef Debug2
+					if( g_stop_time >= 6.00 ){
+						g_start_switch = 1;
+						BUZZER = 0;
+					}else{
+						buzzer_cycle( 1.00 );
+					}
+				#endif
+		/*******PS2**************/
+			#elif CONTROLLER == PS2
+				Rspi_recive_send_line_dualshock();
+				getdate1.dword = g_controller_receive_1st;
+				getdate2.dword = g_controller_receive_2nd;
+				getdate3.dword = g_controller_receive_3rd;
+						
+				if( getdate1.byte.start_sw == 0 ){
+					g_start_switch = 1;
+				}
+				
+				if( getdate1.byte.select_sw == 0 ){
+					ps_switch = 1;
 				}
 			#endif
-		
+				
 			if( g_start_switch == 1 ){
 /**************手動モード***************************/
-				if( CIRCLE_SW >= 1 && TRIANGLE_SW == 0 ){
-					m_out = 80;
-					
-				//}//else{
-				//	move_m( 0 );
-				//}
-				
-				}else if( TRIANGLE_SW >= 1 && CIRCLE_SW == 0 ){
-					m_out = - 80;
-				}else{
-					m_out = 0;
-				}
-				
-				if( SQUARE_SW >= 1 ){
-					AIR = 1;
-				}else{
-					AIR = 0;
-				}
-			//}else{
-				//	circle_switch = 0;
-				//}
-				//}else{
-				//	m_out = 0;
-			//	}
-				
-				if(flag == 0){
-					flag = 1;
-				}else if( flag == 1 ){
-					flag = 0;
-				}			
-				
-				if( flag == 1 ){
-					//AIR = ON;
-				}else{
-					//AIR = OFF;
-				}
-
 				#if OUTPUT_MODE == MANUAL_CONTROL
-					//x方向
-					Motor_output_x = straight_output_x();
-					//y方向
-					Motor_output_y = straight_output_y();
-					//車体角度操作
-					target_degree += turn_output();
-					target_degree = revision_degree( target_degree );
-					
-					//右スティック、左スティック操作なし時　×ボタン押されたとき
-					if( (Motor_output_x == 0 && Motor_output_y == 0 && old_target_degree == target_degree ) || CROSS_SW >= 2){
-						position_rock( old_x , old_y , g_now_x , g_now_y , g_degree);
-						motor_output_l	= g_motor_output_l;
-						motor_output_r	= g_motor_output_r;
-						motor_output_b	= g_motor_output_b;
+					#if CONTROLLER == PS3
+						if( CIRCLE_SW >= 1 && SQUARE_SW == 0 ){
+							m_out = 80;
+							
+						}else if( CIRCLE_SW == 0 && SQUARE_SW >= 1 ){
+							m_out = - 80;
+							
+						}else{
+							m_out = 0;
+						}
 						
-					}else{
-						motor_output_l	= get_motor_output_l( Motor_output_x, Motor_output_y, 0 );
-						motor_output_r	= get_motor_output_r( Motor_output_x, Motor_output_y, 0 );
-						motor_output_b	= get_motor_output_b( Motor_output_x, Motor_output_y, 0 );
-						old_x = g_now_x;
-						old_y = g_now_y;
-					}
-					
-					//車体角度だけ変える
-					if(Motor_output_x == 0 && Motor_output_y == 0 && old_target_degree != target_degree){
-						motor_output_l	= 0;
-						motor_output_r	= 0;
-						motor_output_b	= 0;	
-					}
-					
-					motor_output_turn = pd_rock( g_degree , target_degree );
+						if( TRIANGLE_SW >= 1 ){
+							if( flag_square == OFF){
+								flag_square = ON;
+								AIR =~ AIR;
+							}
+						}else{
+							flag_square = OFF;
+						}
 
-					old_target_degree = target_degree;
+						//x方向
+						Motor_output_x = straight_output_x( (float)LEFT_STICK_HIGH );
+						//y方向
+						Motor_output_y = straight_output_y( (float)LEFT_STICK_WIDE );
+						//車体角度操作
+						target_degree += turn_output( (float)RIGHT_STICK_WIDE );
+						target_degree = revision_degree( target_degree );
+						
+						//右スティック、左スティック操作なし時　×ボタン押されたとき
+						if( (Motor_output_x == 0 && Motor_output_y == 0 && old_target_degree == target_degree ) || CROSS_SW >= 2){
+							position_rock( old_x , old_y , g_now_x , g_now_y , g_degree);
+							motor_output_l	= g_motor_output_l;
+							motor_output_r	= g_motor_output_r;
+							motor_output_b	= g_motor_output_b;
+							
+						}else{
+							motor_output_l	= get_motor_output_l( Motor_output_x, Motor_output_y, 0 );
+							motor_output_r	= get_motor_output_r( Motor_output_x, Motor_output_y, 0 );
+							motor_output_b	= get_motor_output_b( Motor_output_x, Motor_output_y, 0 );
+							old_x = g_now_x;
+							old_y = g_now_y;
+						}
+						
+						//車体角度だけ変える
+						if(Motor_output_x == 0 && Motor_output_y == 0 && old_target_degree != target_degree){
+							motor_output_l	= 0;
+							motor_output_r	= 0;
+							motor_output_b	= 0;	
+						}
+						
+						motor_output_turn = pd_rock( g_degree , target_degree );
+
+						old_target_degree = target_degree;
+/**********************PS2**************************************/	
+					#elif CONTROLLER == PS2
+						#ifndef Debug1
+							if( g_start_switch == 0 ){
+								initialization();
+							}
+						#endif
+						
+						if( getdate2.byte.square_sw == 0 && getdate2.byte.circle_sw == 1 ){
+							m_out = 80;
+							
+						}else if( getdate2.byte.square_sw == 1 && getdate2.byte.circle_sw == 0 ){
+							m_out = - 80;
+							
+						}else{
+							m_out = 0;
+						}
+						
+						if( getdate2.byte.triangle_sw == 0 ){
+							if( flag_square == OFF){
+								flag_square = ON;
+								AIR =~ AIR;
+							}
+						}else{
+							flag_square == OFF;
+						}
+					
+						//x方向
+						Motor_output_x = straight_output_x( (float)getdate3.byte.left_stick_high );
+						//y方向
+						Motor_output_y = straight_output_y( (float)getdate2.byte.left_stick_wide );
+						//車体角度操作
+						target_degree += turn_output( (float)getdate2.byte.right_stick_wide );
+						target_degree = revision_degree( target_degree );
+
+						//右スティック、左スティック操作なし時　×ボタン押されたとき
+						if( (Motor_output_x == 0 && Motor_output_y == 0 && old_target_degree == target_degree ) || getdate2.byte.cross_sw == 0){
+							position_rock( old_x , old_y , g_now_x , g_now_y , g_degree);
+							motor_output_l	= g_motor_output_l;
+							motor_output_r	= g_motor_output_r;
+							motor_output_b	= g_motor_output_b;
+							
+						}else{
+							motor_output_l	= get_motor_output_l( Motor_output_x, Motor_output_y, 0 );
+							motor_output_r	= get_motor_output_r( Motor_output_x, Motor_output_y, 0 );
+							motor_output_b	= get_motor_output_b( Motor_output_x, Motor_output_y, 0 );
+							old_x = g_now_x;
+							old_y = g_now_y;
+						}
+						
+						//車体角度だけ変える
+						if(Motor_output_x == 0 && Motor_output_y == 0 && old_target_degree != target_degree){
+							motor_output_l	= 0;
+							motor_output_r	= 0;
+							motor_output_b	= 0;	
+						}
+						
+						motor_output_turn = pd_rock( g_degree , target_degree );
+
+						old_target_degree = target_degree;
+					#endif
+				
 /***************自動モード************************************/					
 				#elif OUTPUT_MODE == AUTO_CONTROL
 				/*********正方形********/
@@ -632,31 +723,53 @@ void main(void)
 				
 			}//start_switch
 		
-			if( g_start_switch == 0  || stop_flag >= 100 || ps_switch == 1){
-				motor_output_l	= 0.00;
-				motor_output_r	= 0.00;
-				motor_output_b	= 0.00;
-				motor_output_turn = 0.00;
-				free_output();
-			}
+			#if CONTROLLER PS3
 			
-			if( stop_flag >= 100 ){
-				g_start_switch	= 0;
-				LED_P8				= 0;
-				buzzer_cycle( 0.5 );
-			}
-			
-			if( g_start_switch == 1 ){
-				move_m( m_out );
-				#if OUTPUT_MODE == CALIBRATION
-					Move( motor_output_turn , motor_output_turn , motor_output_turn );
-				#else
-					Move( motor_output_l + motor_output_turn , motor_output_r + motor_output_turn , motor_output_b + motor_output_turn );
-				#endif
-			}else{
-				Move( 0 , 0 , 0 );
-			}
-			
+				if( g_start_switch == 0  || stop_flag >= 100 || ps_switch == 1  ){
+					motor_output_l	= 0.00;
+					motor_output_r	= 0.00;
+					motor_output_b	= 0.00;
+					motor_output_turn = 0.00;
+					free_output();
+				}
+				
+				if( stop_flag >= 100 ){
+					g_start_switch	= 0;
+					LED_P8				= 0;
+					buzzer_cycle( 0.5 );
+				}
+				
+				if( g_start_switch == 1 ){
+					move_m( m_out );
+					#if OUTPUT_MODE == CALIBRATION
+						Move( motor_output_turn , motor_output_turn , motor_output_turn );
+					#else
+						Move( motor_output_l + motor_output_turn , motor_output_r + motor_output_turn , motor_output_b + motor_output_turn );
+					#endif
+				}else{
+					Move( 0 , 0 , 0 );
+				}
+				
+			#elif CONTROLLER PS2
+				if( g_start_switch == 0 || getdate1.byte.model_number == 0x41 || getdate1.byte.model_number == 0xff || ps_switch == 1){
+					motor_output_l		= 0;
+					motor_output_r 		= 0;
+					motor_output_b 	= 0;
+					free_output();
+				}
+				
+				if( start_switch == 1 && getdate1.byte.model_number == 0x73 ){
+					move_m( m_out );
+					#if OUTPUT_MODE == CALIBRATION
+						Move( motor_output_turn , motor_output_turn , motor_output_turn );
+					#else
+						Move( motor_output_l + motor_output_turn , motor_output_r + motor_output_turn , motor_output_b + motor_output_turn );
+					#endif
+				}else{
+					Move( 0 , 0 , 0 );
+				}
+			#endif
+
 			#if SERIAL_MODE == ON
 				if( g_time >= 0.1 ){
 					g_time = 0;
@@ -685,7 +798,6 @@ void main(void)
 					//sprintf(str,"%.4f, \n\r",  motor_output_turn);
 					//sprintf( str,"%.4f, %.4f, %.4f , %.4f, %.4f, %.4f, %.4f\n\r", motor_output_l, motor_output_r, motor_output_b, g_velocity , target_velocity, Motor_output_x , Motor_output_y );
 					//transmit( str , 1);
-					send.sci_data1 = m_out;
 					//send.sci_data2 = ENCR();
 					//send.sci_data3 = ENCF();
 					//send.sci_data4 = g_degree;
@@ -880,19 +992,20 @@ float Limit_ul(float upper,float lower,float figure)
 
 float revision_degree( float degree )
 {
-	while( degree > 180 ){
+	/*while( degree > 180 ){
 		degree	= degree - 360;
 	}
 	while( degree < 180 * ( - 1 ) ){
 		degree	= degree + 360;
-	}
-	/*for( ; degree > 180; ){
+	}*/
+	for( ; degree > 180; ){
 		degree -= 360;
 	}
 
 	for(; degree < -180;){
 		degree += 360;
-	}*/
+	}
+	
 	return ( degree );
 }
 
@@ -1079,43 +1192,10 @@ void move_back_tire( float back_duty )
 	BACK_TIRE_DUTY = ( ( PWM_PERIOD * back_duty ) /100 );
 }
 
-/******************************************************************************
-*	タイトル ： 左オムニタイヤの出力決定
-*	  関数名 ： get_motor_output_l
-*	  戻り値 ： float型
-*	    引数1 ：float型 motor_output_x
-*	    引数2 ：float型 motor_output_y
-*	    引数3 ：float型 degree_now
-*	  作成者 ： 坂下文彦
-*	  作成日 ： 2013/11/21
-******************************************************************************/
-float get_motor_output_l(float motor_output_x,float motor_output_y,float degree_now)
-{
-	float 	motor_output_l = 0.0,
-		degree_reverse_x = 0.0,
-		degree_reverse_y = 0.0;
-	
-	if(motor_output_x < 0.0){
-		degree_reverse_x = 180.0;
-	}else{
-		degree_reverse_x = 0.0;
-	}
-	if(motor_output_y < 0.0){
-		degree_reverse_y = 180.0;
-	}else{
-		degree_reverse_y = 0.0;
-	}
-	
-	motor_output_l = fabs(motor_output_x) * cos(D_TO_R(revision_degree(degree_now + (150.0 + degree_reverse_x)))) + fabs(motor_output_y) * sin(D_TO_R(revision_degree(degree_now + (150.0 + degree_reverse_y))));
-	
-	return(motor_output_l);
-}
-
 void move_m( float duty )
 {		
 	static int i = 0;
 	static float old_duty = 0.00;
-	float duty_sub = 0.00;
 	
 	 if( duty == FREE ){
 		M_CW		= 0;
@@ -1148,16 +1228,126 @@ void move_m( float duty )
 		M_CCW 	= 0;
 	}
 	
-	duty_sub = fabs( duty - old_duty );
-	
-	//if( duty_sub > 5 ){
-		//duty = ( old_duty + duty ) / 2;
-	//}
-	
 	old_duty = duty;
 	
 	duty = Limit_ul( MAX_DUTY , 0 , duty );
 	M_DUTY = ( ( PWM_PERIOD * duty ) /100 );
+}
+
+void move_m1( float duty )
+{		
+	static int i = 0;
+	static float old_duty = 0.00;
+	
+	 if( duty == FREE ){
+		M1_CW		= 0;
+		M1_CCW 	= 0;
+
+	}else if( duty > 0 ){
+		M1_CW 	= 1;
+		M1_CCW = 0; 
+	 	if( i == 1 ){
+			g_duty_time = 0;
+		}
+		i = 0;
+		
+	}else if( duty < 0 ){
+		M1_CW 	= 0;
+		M1_CCW 	= 1;
+		duty *= ( -1 );
+	 	if( i == 0 ){
+			g_duty_time = 0;
+		}
+		i = 1;
+	}
+	
+	if( g_duty_time <= 0.010 ){
+		M1_CW		= 0;
+		M1_CCW 	= 0;
+	}
+	if( duty <= 10 ){
+		M1_CW		= 0;
+		M1_CCW 	= 0;
+	}
+	
+	old_duty = duty;
+	
+	duty = Limit_ul( MAX_DUTY , 0 , duty );
+	M1_DUTY = ( ( PWM_PERIOD * duty ) /100 );
+}
+
+void move_m2( float duty )
+{		
+	static int i = 0;
+	static float old_duty = 0.00;
+	
+	 if( duty == FREE ){
+		M2_CW		= 0;
+		M2_CCW 	= 0;
+
+	}else if( duty > 0 ){
+		M2_CW 	= 1;
+		M2_CCW = 0; 
+	 	if( i == 1 ){
+			g_duty_time = 0;
+		}
+		i = 0;
+		
+	}else if( duty < 0 ){
+		M2_CW 	= 0;
+		M2_CCW 	= 1;
+		duty *= ( -1 );
+	 	if( i == 0 ){
+			g_duty_time = 0;
+		}
+		i = 1;
+	}
+	
+	if( g_duty_time <= 0.010 ){
+		M2_CW		= 0;
+		M2_CCW 	= 0;
+	}
+	if( duty <= 10 ){
+		M2_CW		= 0;
+		M2_CCW 	= 0;
+	}
+	
+	old_duty = duty;
+	
+	duty = Limit_ul( MAX_DUTY , 0 , duty );
+	M2_DUTY = ( ( PWM_PERIOD * duty ) /100 );
+}
+
+/******************************************************************************
+*	タイトル ： 左オムニタイヤの出力決定
+*	  関数名 ： get_motor_output_l
+*	  戻り値 ： float型
+*	    引数1 ：float型 motor_output_x
+*	    引数2 ：float型 motor_output_y
+*	    引数3 ：float型 degree_now
+*	  作成者 ： 坂下文彦
+*	  作成日 ： 2013/11/21
+******************************************************************************/
+float get_motor_output_l(float motor_output_x,float motor_output_y,float degree_now)
+{
+	float 	motor_output_l = 0.0,
+		degree_reverse_x = 0.0,
+		degree_reverse_y = 0.0;
+	
+	if(motor_output_x < 0.0){
+		degree_reverse_x = 180.0;
+	}else{
+		degree_reverse_x = 0.0;
+	}
+	if(motor_output_y < 0.0){
+		degree_reverse_y = 180.0;
+	}else{
+		degree_reverse_y = 0.0;
+	}
+	
+	motor_output_l = fabs(motor_output_x) * cos(D_TO_R(revision_degree(degree_now + (150.0 + degree_reverse_x)))) + fabs(motor_output_y) * sin(D_TO_R(revision_degree(degree_now + (150.0 + degree_reverse_y))));
+	
+	return(motor_output_l);
 }
 
 /******************************************************************************
@@ -1377,7 +1567,7 @@ int checksum_r1350n(char *str)
 		}
 	}else{
 		sprintf(str,"CMD_ERROR");
-		transmit( str, 1 );
+		transmit( str );
 	}
 
 	return (p&0xFF);
@@ -1576,18 +1766,18 @@ void buzzer_cycle( float time )
 }
 
 /******************************************************************************
-*	タイトル ： ps3コンの値から出力決定
+*	タイトル ： ps2コンの値から出力決定
 *	  関数名 ： straight_output_x
 *	  戻り値 ： float型 出力値
 *	    引数 ： なし
 *	  作成者 ： 成宮　陽生
 *	  作成日 ： 2014/09/15
 ******************************************************************************/
-float straight_output_x( void )
+float straight_output_x( float left_stick_high )
 {
 	float straight_cal_x = 0.00;
 	
-	straight_cal_x = ( 255.0 - (float)LEFT_STICK_HIGH ) / 255.0;	//左に倒したとき1、右に倒したとき0
+	straight_cal_x = ( 255.0 - left_stick_high ) / 255.0;	//左に倒したとき1、右に倒したとき0
 	straight_cal_x = ( straight_cal_x - 0.5 ) * 2.0;							//左に倒したとき1、右に倒しとき-1
 	if( fabs( straight_cal_x ) <= STICK_NO_MOVE_RANGE ){			//遊び部分
 		straight_cal_x = 0.0;
@@ -1598,18 +1788,18 @@ float straight_output_x( void )
 }
 
 /******************************************************************************
-*	タイトル ： ps3コンの値から出力決定
+*	タイトル ： ps2コンの値から出力決定
 *	  関数名 ： straight_output_y
 *	  戻り値 ： float型 出力値
 *	    引数 ： なし
 *	  作成者 ： 成宮　陽生
 *	  作成日 ： 2014/09/15
 ******************************************************************************/
-float straight_output_y( void )
+float straight_output_y( float left_stick_wide )
 {
 	float straight_cal_y = 0.00;
 	
-	straight_cal_y = ( 255.0 - (float)LEFT_STICK_WIDE ) / 255.0;	//上に倒したとき1、下に倒したとき0
+	straight_cal_y = ( 255.0 - left_stick_wide ) / 255.0;	//上に倒したとき1、下に倒したとき0
 	straight_cal_y = ( straight_cal_y - 0.5 ) * 2.0;							//上に倒したとき1、下に倒したとき-1
 	if( fabs( straight_cal_y ) <= STICK_NO_MOVE_RANGE ){			//遊び部分
 		straight_cal_y = 0.0;
@@ -1620,19 +1810,19 @@ float straight_output_y( void )
 }
 
 /******************************************************************************
-*	タイトル ： ps3コンの値から出力決定
+*	タイトル ： ps2コンの値から出力決定
 *	  関数名 ： turn_output
 *	  戻り値 ： float型 出力値
 *	    引数 ： なし
 *	  作成者 ： 成宮　陽生
 *	  作成日 ： 2014/09/15
 ******************************************************************************/
-float turn_output( void )
+float turn_output( float right_stick_wide )
 {
 	float turn_cal = 0.00;
 
-	turn_cal = ( 255.0 - (float)RIGHT_STICK_WIDE ) / 255.0;	//左に倒したとき1、右に倒したとき0
-	turn_cal = ( turn_cal - 0.5 ) * 2.0;										//左に倒したとき1、右に倒しとき-1
+	turn_cal = ( 255.0 - right_stick_wide ) / 255.0;	//左に倒したとき1、右に倒したとき0
+	turn_cal = ( turn_cal - 0.5 ) * 2.0;						//左に倒したとき1、右に倒しとき-1
 	if( fabs(turn_cal) <= STICK_NO_MOVE_RANGE ){				//遊び部分
 		turn_cal = 0.0;
 	}
