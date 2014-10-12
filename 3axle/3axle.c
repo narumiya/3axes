@@ -32,8 +32,10 @@ void abort(void);
 #define D//ebug1		//スタートボタン押す前の初期化なし
 #define D//ebug2		//コントローラーなしでスタート
 
-#define ROUTE_SQUARE					1	//正方形走行
+#define ROUTE_SQUARE		1	//正方形走行
 #define CIRCLE						2	//円走行
+
+#define AIR							PORTD.DR.BIT.B7
 
 //シリアル通信
 #define MODE_SCIDATA_BOX 	6
@@ -84,15 +86,19 @@ void abort(void);
 #define RADIUS						1000.0
 
 /*足回り*/
-#define LEFT_TIRE_CW			PORT7.DR.BIT.B4
-#define LEFT_TIRE_CCW		PORT7.DR.BIT.B6
-#define LEFT_TIRE_DUTY		MTU4.TGRB
-#define RIGHT_TIRE_CW		PORT7.DR.BIT.B0
-#define RIGHT_TIRE_CCW		PORT7.DR.BIT.B2
-#define RIGHT_TIRE_DUTY	MTU6.TGRB
-#define BACK_TIRE_CW			PORT7.DR.BIT.B1
-#define BACK_TIRE_CCW		PORT7.DR.BIT.B3
-#define BACK_TIRE_DUTY		MTU6.TGRD
+#define LEFT_TIRE_CW			PORT7.DR.BIT.B5
+#define LEFT_TIRE_CCW		PORT7.DR.BIT.B7
+#define LEFT_TIRE_DUTY		MTU4.TGRD
+#define RIGHT_TIRE_CW		PORT7.DR.BIT.B4
+#define RIGHT_TIRE_CCW		PORT7.DR.BIT.B6
+#define RIGHT_TIRE_DUTY	MTU4.TGRB
+#define BACK_TIRE_CW			PORT7.DR.BIT.B0
+#define BACK_TIRE_CCW		PORT7.DR.BIT.B2
+#define BACK_TIRE_DUTY		MTU6.TGRB
+
+#define M_DUTY					MTU6.TGRD
+#define	M_CW						PORT7.DR.BIT.B3
+#define	M_CCW						PORT7.DR.BIT.B1
 
 /*弧度法、度数法　変換*/
 #define M_PI							3.141592653
@@ -106,9 +112,9 @@ void abort(void);
 #define	FREE							99999
 
 /*エンコーダカウント*/
-#define ENCF()						mtu8_count()
-#define ENCL()						mtu2_count()
-#define ENCR()						mtu1_count()
+#define ENCF()						mtu1_count()
+#define ENCL()						mtu8_count()
+#define ENCR()						mtu2_count()
 
 /*中心からエンコーダまでの距離*/
 #define CENTER_TO_ENC		237.0
@@ -126,7 +132,7 @@ void abort(void);
 #define POSITION_X				0.00
 #define POSITION_Y				0.00
 
-#define END 							'#'									//通信データの終端文字
+#define END 							'#'			//通信データの終端文字
 #define RECEIVE_STR_COLUMN 32		//1データあたりの最大文字数		例: a123# (6文字)
 
 #define LEFT_STICK_WIDE			g_atoz_value[(int)('a' - 'a')]
@@ -147,6 +153,7 @@ void abort(void);
 #define ACC_Y							g_atoz_value[(int)('n' - 'a')]
 #define ACC_Z							g_atoz_value[(int)('o' - 'a')]
 
+
 //グローバル変数に格納する場合	おばかな例
 float	g_atoz_value[26]	=	{	0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00,
 											0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00,
@@ -162,6 +169,7 @@ float	g_count_time			= 0.00,
 		g_right_duty_time	= 0.00,
 		g_back_duty_time	= 0.00,
 		g_time					= 0.00,
+		g_duty_time			= 0.00,
 		g_stop_time			= 0.00;
 
 /*overfloaw underfloaw カウント*/
@@ -197,7 +205,7 @@ float	g_now_x		= 0.00,
 		g_angular_velocity = 0.00;
 		
 /*最大速度*/
-float	g_max_duty = 30;	
+float	g_max_duty = 95;	
 float  g_max_velocity = MAX_VELOCITY;
 float	g_motor_output_l = 0.00,
 		g_motor_output_r = 0.00,
@@ -208,13 +216,6 @@ typedef struct Target
 	float x_c;
 	float y_c;
 }Target;
-
-typedef struct{
-	float x_now;
-	float y_now;
-	float degree;
-	float velocity;
-}Robot;
 
 typedef struct{
 	float sci_data1;
@@ -327,6 +328,7 @@ void free_output( void );
 void position_rock(float target_x, float target_y, float now_x, float now_y, float now_degree );
 void get_robot_inf(void);
 void sci_transformer(Sci_data	*send);
+void move_m( float duty );
 
 void initial_config( void )
 {
@@ -348,6 +350,8 @@ void io_config( void )
 	PORT8.DDR.BYTE = 3;
 	/*ブザー*/
 	PORT2.DDR.BIT.B2 = 1;
+	/*電磁弁*/
+	PORTD.DDR.BIT.B7  = 1;
 }
 
 void main(void)
@@ -369,6 +373,7 @@ void main(void)
 			motor_output_l		= 0.00,
 			motor_output_r		= 0.00,
 			motor_output_b		= 0.00,
+			m_out					= 0.00,
 			output_l					= 0.00,
 			output_r				= 0.00,
 			output_b				= 0.00,
@@ -394,10 +399,12 @@ void main(void)
 	int		task				= 1,
 			task_box		= 0,
 			mileage_flag	= 0,
+			flag				= 0,
 			stop_flag		= 0;
 
 	int		ps_switch		= 0,
 			up_switch		= 0,
+			circle_switch	= 0,
 			down_switch	= 0;
 	
 	Sci_data send = {0.0};
@@ -426,7 +433,7 @@ void main(void)
 				stop_flag = stop_duty();
 			#endif
 			
-			if( (int)START_SELECT_SW == 8 ){
+			if( (int)START_SELECT_SW == 1 ){
 				LED_P81 = 1;
 				g_start_switch = 1;
 			}
@@ -460,7 +467,43 @@ void main(void)
 		
 			if( g_start_switch == 1 ){
 /**************手動モード***************************/
+				if( CIRCLE_SW >= 1 && TRIANGLE_SW == 0 ){
+					m_out = 80;
+					
+				//}//else{
+				//	move_m( 0 );
+				//}
 				
+				}else if( TRIANGLE_SW >= 1 && CIRCLE_SW == 0 ){
+					m_out = - 80;
+				}else{
+					m_out = 0;
+				}
+				
+				if( SQUARE_SW >= 1 ){
+					AIR = 1;
+				}else{
+					AIR = 0;
+				}
+			//}else{
+				//	circle_switch = 0;
+				//}
+				//}else{
+				//	m_out = 0;
+			//	}
+				
+				if(flag == 0){
+					flag = 1;
+				}else if( flag == 1 ){
+					flag = 0;
+				}			
+				
+				if( flag == 1 ){
+					//AIR = ON;
+				}else{
+					//AIR = OFF;
+				}
+
 				#if OUTPUT_MODE == MANUAL_CONTROL
 					//x方向
 					Motor_output_x = straight_output_x();
@@ -604,6 +647,7 @@ void main(void)
 			}
 			
 			if( g_start_switch == 1 ){
+				move_m( m_out );
 				#if OUTPUT_MODE == CALIBRATION
 					Move( motor_output_turn , motor_output_turn , motor_output_turn );
 				#else
@@ -641,12 +685,16 @@ void main(void)
 					//sprintf(str,"%.4f, \n\r",  motor_output_turn);
 					//sprintf( str,"%.4f, %.4f, %.4f , %.4f, %.4f, %.4f, %.4f\n\r", motor_output_l, motor_output_r, motor_output_b, g_velocity , target_velocity, Motor_output_x , Motor_output_y );
 					//transmit( str , 1);
-					send.sci_data1 = g_now_x;
-					send.sci_data2 = g_now_y;
-					send.sci_data3 = g_degree;
-					send.sci_data4 = g_Rate_f;
-					send.sci_data5 = g_velocity;
-					sci_transformer(&send);
+					send.sci_data1 = m_out;
+					//send.sci_data2 = ENCR();
+					//send.sci_data3 = ENCF();
+					//send.sci_data4 = g_degree;
+					//send.sci_data1 = mtu8_count();
+					//send.sci_data2 = START_SELECT_SW;
+					//send.sci_data3 = mtu1_count();
+					//send.sci_data4 = g_Rate_f;
+					//send.sci_data5 = g_velocity;
+					//sci_transformer(&send);
 				}
 			#endif
 		}//INTERRUPT_TIME
@@ -660,6 +708,7 @@ void timer(void)
 	g_left_duty_time	+= 0.001;
 	g_right_duty_time	+= 0.001;
 	g_back_duty_time	+= 0.001;
+	g_duty_time			+= 0.001;
 	g_time					+= 0.001;
 	g_stop_time			+= 0.001;
 }
@@ -831,19 +880,19 @@ float Limit_ul(float upper,float lower,float figure)
 
 float revision_degree( float degree )
 {
-	/*while( degree > 180 ){
+	while( degree > 180 ){
 		degree	= degree - 360;
 	}
 	while( degree < 180 * ( - 1 ) ){
 		degree	= degree + 360;
-	}*/
-	for( ; degree > 180; ){
+	}
+	/*for( ; degree > 180; ){
 		degree -= 360;
 	}
 
 	for(; degree < -180;){
 		degree += 360;
-	}
+	}*/
 	return ( degree );
 }
 
@@ -1060,6 +1109,55 @@ float get_motor_output_l(float motor_output_x,float motor_output_y,float degree_
 	motor_output_l = fabs(motor_output_x) * cos(D_TO_R(revision_degree(degree_now + (150.0 + degree_reverse_x)))) + fabs(motor_output_y) * sin(D_TO_R(revision_degree(degree_now + (150.0 + degree_reverse_y))));
 	
 	return(motor_output_l);
+}
+
+void move_m( float duty )
+{		
+	static int i = 0;
+	static float old_duty = 0.00;
+	float duty_sub = 0.00;
+	
+	 if( duty == FREE ){
+		M_CW		= 0;
+		M_CCW 	= 0;
+
+	}else if( duty > 0 ){
+		M_CW 	= 1;
+		M_CCW = 0; 
+	 	if( i == 1 ){
+			g_duty_time = 0;
+		}
+		i = 0;
+		
+	}else if( duty < 0 ){
+		M_CW 	= 0;
+		M_CCW 	= 1;
+		duty *= ( -1 );
+	 	if( i == 0 ){
+			g_duty_time = 0;
+		}
+		i = 1;
+	}
+	
+	if( g_duty_time <= 0.010 ){
+		M_CW		= 0;
+		M_CCW 	= 0;
+	}
+	if( duty <= 10 ){
+		M_CW		= 0;
+		M_CCW 	= 0;
+	}
+	
+	duty_sub = fabs( duty - old_duty );
+	
+	//if( duty_sub > 5 ){
+		//duty = ( old_duty + duty ) / 2;
+	//}
+	
+	old_duty = duty;
+	
+	duty = Limit_ul( MAX_DUTY , 0 , duty );
+	M_DUTY = ( ( PWM_PERIOD * duty ) /100 );
 }
 
 /******************************************************************************
@@ -1801,17 +1899,23 @@ void get_robot_inf( void )
 					old_enc_dis_l		= 0.00,
 					old_velocity		= 0.00;
 					
-	enc_dis_f = ( -1 ) * ENC_DIAMETER_F * M_PI * ( ENCF() / PULSE );
-	enc_dis_r = ENC_DIAMETER_R * M_PI * ( ENCR() / PULSE );
+	Sci_data send = {0.0};
+					
+	enc_dis_f = ( - 1 ) * ENC_DIAMETER_F * M_PI * ( ENCF() / PULSE );
+	enc_dis_r = ( -1)*ENC_DIAMETER_R * M_PI * ( ENCR() / PULSE );
 	enc_dis_l = ENC_DIAMETER_L * M_PI * ( ENCL() / PULSE );
+	
+	send.sci_data1 = enc_dis_f;
+	send.sci_data2 = enc_dis_r;
+	send.sci_data3 = enc_dis_l;
 	
 	enc_dis_subt_f = enc_dis_f - old_enc_dis_f;
 	enc_dis_subt_r = enc_dis_r - old_enc_dis_r;
 	enc_dis_subt_l = enc_dis_l - old_enc_dis_l;
 	
-	if( fabs(enc_dis_subt_f) >=  100 || fabs(enc_dis_subt_r) >=  100 || fabs(enc_dis_subt_l) >=  100 ){
-		g_start_switch = 0;
-	}
+	//if( fabs(enc_dis_subt_f) >=  100 || fabs( enc_dis_subt_r ) >=  100 || fabs(enc_dis_subt_l) >=  100 ){
+		//g_start_switch = 0;
+	//}
 	
 	radian_f = enc_dis_subt_f / CENTER_TO_ENC;
 	radian_r = enc_dis_subt_r / CENTER_TO_ENC;
@@ -1819,11 +1923,17 @@ void get_robot_inf( void )
 
 	degree += R_TO_D( ( radian_f + radian_r + radian_l ) / 3 );
 	
-	if( fabs( degree ) >= 360 * 5  ){
+	if( fabs( degree ) >= 360 * 10 ){
 		g_start_switch = 0;
 	}
 	
 	g_degree = revision_degree( degree );
+	
+	//send.sci_data1 = degree;
+	//send.sci_data2 = enc_dis_f;
+	//send.sci_data3 = enc_dis_r;
+	//send.sci_data4 = enc_dis_l;
+	//sci_transformer(&send);
 	
 	if( enc_dis_subt_f < 0 ){
 		 degree_reverse_f = 180.0;
