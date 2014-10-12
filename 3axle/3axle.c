@@ -175,7 +175,10 @@ void abort(void);
 #define PS_SW							g_atoz_value[(int)('l' - 'a')] 
 #define ACC_X							g_atoz_value[(int)('m' - 'a')]
 #define ACC_Y							g_atoz_value[(int)('n' - 'a')]
-#define ACC_Z							g_atoz_value[(int)('o' - 'a')]
+#define L1_SW							g_atoz_value[(int)('o' - 'a')]
+#define R1_SW							g_atoz_value[(int)('p' - 'a')]
+#define L2_SW							g_atoz_value[(int)('q' - 'a')]
+#define R2_SW							g_atoz_value[(int)('r' - 'a')]
 
 
 //ƒOƒ[ƒoƒ‹•Ï”‚ÉŠi”[‚·‚éê‡	‚¨‚Î‚©‚È—á
@@ -723,7 +726,7 @@ void main(void)
 				
 			}//start_switch
 		
-			#if CONTROLLER PS3
+			#if CONTROLLER == PS3
 			
 				if( g_start_switch == 0  || stop_flag >= 100 || ps_switch == 1  ){
 					motor_output_l	= 0.00;
@@ -750,7 +753,7 @@ void main(void)
 					Move( 0 , 0 , 0 );
 				}
 				
-			#elif CONTROLLER PS2
+			#elif CONTROLLER == PS2
 				if( g_start_switch == 0 || getdate1.byte.model_number == 0x41 || getdate1.byte.model_number == 0xff || ps_switch == 1){
 					motor_output_l		= 0;
 					motor_output_r 		= 0;
@@ -1195,7 +1198,6 @@ void move_back_tire( float back_duty )
 void move_m( float duty )
 {		
 	static int i = 0;
-	static float old_duty = 0.00;
 	
 	 if( duty == FREE ){
 		M_CW		= 0;
@@ -1228,8 +1230,6 @@ void move_m( float duty )
 		M_CCW 	= 0;
 	}
 	
-	old_duty = duty;
-	
 	duty = Limit_ul( MAX_DUTY , 0 , duty );
 	M_DUTY = ( ( PWM_PERIOD * duty ) /100 );
 }
@@ -1237,7 +1237,6 @@ void move_m( float duty )
 void move_m1( float duty )
 {		
 	static int i = 0;
-	static float old_duty = 0.00;
 	
 	 if( duty == FREE ){
 		M1_CW		= 0;
@@ -1270,8 +1269,6 @@ void move_m1( float duty )
 		M1_CCW 	= 0;
 	}
 	
-	old_duty = duty;
-	
 	duty = Limit_ul( MAX_DUTY , 0 , duty );
 	M1_DUTY = ( ( PWM_PERIOD * duty ) /100 );
 }
@@ -1279,7 +1276,6 @@ void move_m1( float duty )
 void move_m2( float duty )
 {		
 	static int i = 0;
-	static float old_duty = 0.00;
 	
 	 if( duty == FREE ){
 		M2_CW		= 0;
@@ -1311,8 +1307,6 @@ void move_m2( float duty )
 		M2_CW		= 0;
 		M2_CCW 	= 0;
 	}
-	
-	old_duty = duty;
 	
 	duty = Limit_ul( MAX_DUTY , 0 , duty );
 	M2_DUTY = ( ( PWM_PERIOD * duty ) /100 );
@@ -1723,12 +1717,11 @@ void receive_att( void )
 int stop_duty( void )
 {
 	static float old_acc_x	= 0,
-					old_acc_y	= 0,
-					old_acc_z 	= 0;
+					old_acc_y	= 0;
 
 	static int	flag	= 0;
 				 
-	if( old_acc_x == ACC_X && old_acc_y == ACC_Y && old_acc_z == ACC_Z ){
+	if( old_acc_x == ACC_X && old_acc_y == ACC_Y ){
 		flag ++;
 	}else{
 		flag = 0;
@@ -1736,7 +1729,6 @@ int stop_duty( void )
 
 	old_acc_x = ACC_X;
 	old_acc_y = ACC_Y;
-	old_acc_z = ACC_Z;
 
 	return ( flag );
 }
