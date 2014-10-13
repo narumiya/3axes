@@ -38,7 +38,8 @@ void abort(void);
 #define ROUTE_SQUARE		1	//正方形走行
 #define CIRCLE						2	//円走行
 
-#define AIR							PORTD.DR.BIT.B7
+#define AIR_1						PORTD.DR.BIT.B7
+#define AIR_2						PORTD.DR.BIT.B7
 
 //シリアル通信
 #define MODE_SCIDATA_BOX 	6
@@ -180,13 +181,16 @@ void abort(void);
 #define L2_SW							g_atoz_value[(int)('q' - 'a')]
 #define R2_SW							g_atoz_value[(int)('r' - 'a')]
 
+#define CAM_X							g_AtoZ_value[(int)('C' - 'A')]
+#define CAM_Y							g_AtoZ_value[(int)('D' - 'A')]
+#define CAM_TURN					g_AtoZ_value[(int)('E' - 'A')]
 
 //グローバル変数に格納する場合	おばかな例
-float	g_atoz_value[26]	=	{	0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00,
+float	g_atoz_value[26]	=	{	127.0, 127.0, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00,
 											0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00,
 											0.00, 0.00, 0.00, 0.00, 0.00, 0.00};
 								
-float	g_AtoZ_value[26]	=	{	0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00,
+float	g_AtoZ_value[26]	=	{	127.0, 127.0 , 127.0, 127.0, 127.0, 0.00, 0.00, 0.00, 0.00, 0.00,
 											0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00,
 											0.00, 0.00, 0.00, 0.00, 0.00, 0.00};
 
@@ -232,7 +236,7 @@ float	g_now_x		= 0.00,
 		g_angular_velocity = 0.00;
 		
 /*最大速度*/
-float	g_max_duty = 95;	
+float	g_max_duty = 40;	
 float  g_max_velocity = MAX_VELOCITY;
 float	g_motor_output_l = 0.00,
 		g_motor_output_r = 0.00,
@@ -360,6 +364,9 @@ void move_m1( float duty );
 void move_m2( float duty );
 void move_m3( float duty );
 void move_m4( float duty );
+void receive_att(void);
+void receive_att_1(void);
+void receive_order_c_1(char character);
 
 void initial_config( void )
 {
@@ -430,6 +437,11 @@ void main(void)
 			task_box		= 0,
 			mileage_flag	= 0,
 			flag_square	= 0,
+			flag_r1			= 0,
+			flag_r2			= 0,
+			flag_left_sw	= 0,
+			flag_up			= 0,
+			flag_down		= 0,
 			stop_flag		= 0;
 
 	int		ps_switch		= 0;
@@ -478,12 +490,6 @@ void main(void)
 					ps_switch = 1;
 				}
 				
-				if( UP_SW >= 1 && DOWN_SW == 0 ){
-					g_max_duty = 95;
-				}else if( UP_SW == 0 && DOWN_SW >= 1 ){
-					g_max_duty = 50;
-				}
-				
 				#ifndef Debug1
 					if( g_start_switch == 0 ){
 						initialization();
@@ -518,32 +524,82 @@ void main(void)
 /**************手動モード***************************/
 				#if OUTPUT_MODE == MANUAL_CONTROL
 					#if CONTROLLER == PS3
-						if( CIRCLE_SW >= 1 && SQUARE_SW == 0 ){
+					
+						if( UP_SW >= 1  && DOWN_SW == 0 ){
+							if( flag_up == OFF){
+								flag_up = ON;
+								g_max_duty = 95;
+							}
+						}else if( UP_SW  == 0 && DOWN_SW  >= 1 ){
+							if( flag_down == OFF){
+								flag_down = ON;
+								g_max_duty = 50;
+							}
+						}else{
+							flag_down = OFF;
+							flag_up = OFF;
+						}
+						
+						if( SQUARE_SW >= 1 && CIRCLE_SW == 0 ){
 							m_out = 80;
 							
-						}else if( CIRCLE_SW == 0 && SQUARE_SW >= 1 ){
+						}else if( SQUARE_SW == 0 && CIRCLE_SW >= 1 ){
 							m_out = - 80;
 							
 						}else{
 							m_out = 0;
 						}
 						
-						if( TRIANGLE_SW >= 1 ){
-							if( flag_square == OFF){
-								flag_square = ON;
-								AIR =~ AIR;
+						/*if( RIGHT_SW >= 1 && LEFT_SW == 0 ){
+							m_out = 80;
+							
+						}else if( RIGHT_SW == 0 && LEFT_SW >= 1 ){
+							m_out = - 80;
+							
+						}else{
+							m_out = 0;
+						}*/
+						
+						if( R1_SW >= 1 ){
+							if( flag_r1 == OFF){
+								flag_r1 = ON;
+								AIR_1 =~ AIR_1;
 							}
 						}else{
-							flag_square = OFF;
+							flag_r1 = OFF;
 						}
+						
+						/*if( R2_SW >= 1 ){
+							if( flag_r2 == OFF){
+								flag_r2 = ON;
+								AIR_2 =~ AIR_2;
+							}
+						}else{
+							flag_r2 = OFF;
+						}*/
 
-						//x方向
-						Motor_output_x = straight_output_x( (float)LEFT_STICK_HIGH );
-						//y方向
-						Motor_output_y = straight_output_y( (float)LEFT_STICK_WIDE );
-						//車体角度操作
-						target_degree += turn_output( (float)RIGHT_STICK_WIDE );
-						target_degree = revision_degree( target_degree );
+						
+						if( L1_SW >= 1 ){
+							//x方向
+							Motor_output_x = straight_output_x( (float)CAM_X );
+							//y方向
+							Motor_output_y = straight_output_y( (float)CAM_Y );
+							//車体角度操作
+							//target_degree += turn_output( (float)CAM_TURN );
+							//target_degree = revision_degree( target_degree );
+							motor_output_turn = straight_output_y((float)CAM_TURN);
+							
+						}else{
+							
+							//x方向
+							Motor_output_x = straight_output_x( (float)LEFT_STICK_HIGH );
+							//y方向
+							Motor_output_y = straight_output_y( (float)LEFT_STICK_WIDE );
+							//車体角度操作
+							target_degree += turn_output( (float)RIGHT_STICK_WIDE );
+							target_degree = revision_degree( target_degree );
+							//motor_output_turn = straight_output_y((float)RIGHT_STICK_WIDE);
+						}
 						
 						//右スティック、左スティック操作なし時　×ボタン押されたとき
 						if( (Motor_output_x == 0 && Motor_output_y == 0 && old_target_degree == target_degree ) || CROSS_SW >= 2){
@@ -568,7 +624,8 @@ void main(void)
 						}
 						
 						motor_output_turn = pd_rock( g_degree , target_degree );
-
+						//motor_output_turn = straight_output_y((float)RIGHT_STICK_WIDE);
+						
 						old_target_degree = target_degree;
 /**********************PS2**************************************/	
 					#elif CONTROLLER == PS2
@@ -588,22 +645,57 @@ void main(void)
 							m_out = 0;
 						}
 						
-						if( getdate2.byte.triangle_sw == 0 ){
-							if( flag_square == OFF){
-								flag_square = ON;
-								AIR =~ AIR;
+						/*if( getdate1.byte.right_sw == 0 && getdate1.byte.left_sw == 1 ){
+							m_out_1 = 80;
+							
+						}else if( getdate2.byte.right_sw == 1 && getdate2.byte.left_sw == 0 ){
+							m_out_1 = - 80;
+							
+						}else{
+							m_out_1 = 0;
+						}*/
+					
+						if( getdate2.byte.r1_sw == 0 ){
+							if( flag_r1 == 0){
+								flag_r1 = 1;
+								AIR_1 =~ AIR_1;
+							}else{
+								flag_r1 = 0;
+							}
+						}
+						
+						/*if( getdate2.byte.r2_sw == 0 ){
+							if( flag_r2 == OFF){
+								flag_r2 = ON;
+								AIR_2 =~ AIR_2;
+							}else{
+								flag_r2 = OFF;
+							}
+						}*/
+						
+						if( getdate1.byte.up_sw == 0  && getdate1.byte.down_sw == 1 ){
+							if( flag_up == OFF){
+								flag_up = ON;
+								g_max_duty = 95;
+							}
+						}else if( getdate1.byte.up_sw == 1 && getdate1.byte.down_sw == 0 ){
+							if( flag_down == OFF){
+								flag_down = ON;
+								g_max_duty = 50;
 							}
 						}else{
-							flag_square == OFF;
+							flag_down = OFF;
+							flag_up = OFF;
 						}
-					
-						//x方向
-						Motor_output_x = straight_output_x( (float)getdate3.byte.left_stick_high );
-						//y方向
-						Motor_output_y = straight_output_y( (float)getdate2.byte.left_stick_wide );
-						//車体角度操作
-						target_degree += turn_output( (float)getdate2.byte.right_stick_wide );
-						target_degree = revision_degree( target_degree );
+						
+							//x方向
+							Motor_output_x = straight_output_x( (float)getdate3.byte.left_stick_high );
+							//y方向
+							Motor_output_y = straight_output_y( (float)getdate2.byte.left_stick_wide );
+							//車体角度操作
+							target_degree += turn_output( (float)getdate2.byte.right_stick_wide );
+							target_degree = revision_degree( target_degree );
+						//}
 
 						//右スティック、左スティック操作なし時　×ボタン押されたとき
 						if( (Motor_output_x == 0 && Motor_output_y == 0 && old_target_degree == target_degree ) || getdate2.byte.cross_sw == 0){
@@ -625,6 +717,11 @@ void main(void)
 							motor_output_l	= 0;
 							motor_output_r	= 0;
 							motor_output_b	= 0;	
+						}
+										
+						if( getdate1.byte.model_number == 0x41 ){
+							g_start_switch = 0;
+							target_degree = g_degree;
 						}
 						
 						motor_output_turn = pd_rock( g_degree , target_degree );
@@ -738,12 +835,14 @@ void main(void)
 				
 				if( stop_flag >= 100 ){
 					g_start_switch	= 0;
-					LED_P8				= 0;
+					//LED_P8				= 0;
 					buzzer_cycle( 0.5 );
 				}
 				
 				if( g_start_switch == 1 ){
 					move_m( m_out );
+					//move_m1( m1_out );
+					
 					#if OUTPUT_MODE == CALIBRATION
 						Move( motor_output_turn , motor_output_turn , motor_output_turn );
 					#else
@@ -761,7 +860,7 @@ void main(void)
 					free_output();
 				}
 				
-				if( start_switch == 1 && getdate1.byte.model_number == 0x73 ){
+				if( g_start_switch == 1 && getdate1.byte.model_number == 0x73 ){
 					move_m( m_out );
 					#if OUTPUT_MODE == CALIBRATION
 						Move( motor_output_turn , motor_output_turn , motor_output_turn );
@@ -801,14 +900,15 @@ void main(void)
 					//sprintf(str,"%.4f, \n\r",  motor_output_turn);
 					//sprintf( str,"%.4f, %.4f, %.4f , %.4f, %.4f, %.4f, %.4f\n\r", motor_output_l, motor_output_r, motor_output_b, g_velocity , target_velocity, Motor_output_x , Motor_output_y );
 					//transmit( str , 1);
-					//send.sci_data2 = ENCR();
-					//send.sci_data3 = ENCF();
-					//send.sci_data4 = g_degree;
+					//send.sci_data1 = CAM_X;
+					//send.sci_data2 = CAM_Y;
+					//send.sci_data3 = CAM_TURN;
+					//send.sci_data4 = g_atoz_value[(int)('E' - 'A')];
+					//send.sci_data5 = pick_out_atoz_value('A');
 					//send.sci_data1 = mtu8_count();
 					//send.sci_data2 = START_SELECT_SW;
 					//send.sci_data3 = mtu1_count();
 					//send.sci_data4 = g_Rate_f;
-					//send.sci_data5 = g_velocity;
 					//sci_transformer(&send);
 				}
 			#endif
@@ -970,6 +1070,13 @@ char Receive_uart_c_0(void)
 	while (SCI0.SSR.BIT.RDRF == 0);		//RDRF = 0：SCRDR に有効な受信データが格納されていないことを表示
 	SCI0.SSR.BIT.RDRF = 0;				//RDRFを待機状態に変更	
 	return SCI0.RDR;
+}
+
+char Receive_uart_c_1(void)
+{
+	while (SCI1.SSR.BIT.RDRF == 0);		//RDRF = 0：SCRDR に有効な受信データが格納されていないことを表示
+	SCI1.SSR.BIT.RDRF = 0;				//RDRFを待機状態に変更	
+	return SCI1.RDR;
 }
 
 /******************************************************************************
@@ -1213,7 +1320,7 @@ void move_m( float duty )
 		
 	}else if( duty < 0 ){
 		M_CW 	= 0;
-		M_CCW 	= 1;
+		M_CCW = 1;
 		duty *= ( -1 );
 	 	if( i == 0 ){
 			g_duty_time = 0;
@@ -1283,7 +1390,7 @@ void move_m2( float duty )
 
 	}else if( duty > 0 ){
 		M2_CW 	= 1;
-		M2_CCW = 0; 
+		M2_CCW = 0;
 	 	if( i == 1 ){
 			g_duty_time = 0;
 		}
@@ -1679,8 +1786,59 @@ void receive_order_c(char character)
        minus_flag = 0;
        point_flag = 0;
        after_point_count = 0;
-    }   
+    }
 }
+
+//一文字ごとに解析する関数	いーのくんの力作
+void receive_order_c_1(char character)
+{
+    static int target_box = 255;										//格納命令の開始文字(ASCIIコードのa～z,A～Z)
+    static char storage_str[RECEIVE_STR_COLUMN] = "";	//文字の格納用の文字列
+    static int storage_num = 0;											//文字を文字列のどこに格納するか
+    static int minus_flag = 0;											//マイナス値か否か
+    static int point_flag = 0;							 					//小数点以下が含まれているか否か
+    static int after_point_count = 0;					 				//小数点以下にどれだけ数があるか
+    static int large_size_flag = 0;										//大文字なのか否か
+    int reset = 0;										 						//処理のリセットをするか否か
+	const char end = END;								 				//格納命令の終了文字
+    
+    if(character == end){
+            storage_str[storage_num] = '\0';
+            receive_order_depot(target_box, storage_str, minus_flag, after_point_count, large_size_flag);
+            reset = 1;
+            target_box = 255;
+            large_size_flag = 0;
+    }else{
+        if( (character >= '0') && (character <= '9') ){
+            storage_str[storage_num] = character;
+            storage_num++; 
+            if( point_flag == 1 ){
+                after_point_count++;
+            }
+        }else if( (character >= 'a') && (character <= 'z') ){
+            reset = 1;
+            target_box = (int)(character - 'a');
+            large_size_flag = 0;
+        }else if( (character >= 'A') && (character <= 'Z') ){
+            reset = 1;
+            target_box = (int)(character - 'A');
+            large_size_flag = 1;
+        }else if( character == '-' ){
+            minus_flag = 1;
+        }else if( character == '.' ){
+            point_flag = 1;
+        }
+    }
+    
+    if( reset == 1 ){
+       strcpy(storage_str,"");
+       storage_num = 0;
+       minus_flag = 0;
+       point_flag = 0;
+       after_point_count = 0;
+    }
+}
+
 
 //文字列単位で解析する関数	繰り返すだけ
 void receive_order_s(char *word)
@@ -1695,15 +1853,15 @@ void receive_order_s(char *word)
 void receive_att( void )
 {
     char c = '\0';
-	int stert_switch = 0;
+	int start_switch = 0;
 	
-	LED_P80 = 1;
+	//LED_P80 = 1;
 
 	if( ( int )START_SELECT_SW == 8  ){
-		stert_switch = 1;
+		start_switch = 1;
 	}
 	
-	if( stert_switch == 0 ){
+	if( start_switch == 0 ){
 		buzzer_cycle( 0.3 );
 	}else{
 		buzzer_cycle( 1 );
@@ -1712,6 +1870,19 @@ void receive_att( void )
 	c = Receive_uart_c();//受信データ
 	
     receive_order_c( c );
+}
+
+void receive_att_1( void )
+{
+    char c = '\0';
+	
+	buzzer_cycle( 0.3 );
+	PORT8.DDR.BIT.B1 = 1;
+	LED_P80 = 1;
+	
+	c = Receive_uart_c_1();//受信データ
+	
+    receive_order_c_1( c );
 }
 
 int stop_duty( void )
@@ -1769,7 +1940,7 @@ float straight_output_x( float left_stick_high )
 {
 	float straight_cal_x = 0.00;
 	
-	straight_cal_x = ( 255.0 - left_stick_high ) / 255.0;	//左に倒したとき1、右に倒したとき0
+	straight_cal_x = ( 255.0 - left_stick_high ) / 255.0;					//左に倒したとき1、右に倒したとき0
 	straight_cal_x = ( straight_cal_x - 0.5 ) * 2.0;							//左に倒したとき1、右に倒しとき-1
 	if( fabs( straight_cal_x ) <= STICK_NO_MOVE_RANGE ){			//遊び部分
 		straight_cal_x = 0.0;
@@ -1791,7 +1962,7 @@ float straight_output_y( float left_stick_wide )
 {
 	float straight_cal_y = 0.00;
 	
-	straight_cal_y = ( 255.0 - left_stick_wide ) / 255.0;	//上に倒したとき1、下に倒したとき0
+	straight_cal_y = ( 255.0 - left_stick_wide ) / 255.0;					//上に倒したとき1、下に倒したとき0
 	straight_cal_y = ( straight_cal_y - 0.5 ) * 2.0;							//上に倒したとき1、下に倒したとき-1
 	if( fabs( straight_cal_y ) <= STICK_NO_MOVE_RANGE ){			//遊び部分
 		straight_cal_y = 0.0;

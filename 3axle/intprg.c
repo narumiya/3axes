@@ -22,6 +22,8 @@
 #include "vect.h"
 #pragma section IntPRG
 
+void receive_att_1( void );
+
 // Exception(Supervisor Instruction)
 void Excep_SuperVisorInst(void){/* brk(); */}
 
@@ -477,7 +479,11 @@ void Excep_SCI0_TEI0(void){ }
 void Excep_SCI1_ERI1(void){ }
 
 // SCI1 RXI1
-void Excep_SCI1_RXI1(void){}
+void Excep_SCI1_RXI1(void)
+{
+	IR(SCI1, RXI1) = 0;
+	receive_att_1( );
+}
 
 // SCI1 TXI1
 void Excep_SCI1_TXI1(void){ }

@@ -5,7 +5,7 @@
 #define ON						1
 #define OFF						0
 #define BIT_RATE_0			115200
-#define BIT_RATE_1			9600
+#define BIT_RATE_1			115200
 #define BIT_RATE_2			115200
 #define PWM_PERIOD		((48000000/1)/100000)
 
@@ -160,29 +160,20 @@ void init_SCI1( void )
 {	
 	int bit_count = 0;
 	
-	SYSTEM.MSTPCRB.BIT.MSTPB30 = 0;							//シリアル通信1 モジュール状態の解除
-	
-	SCI1.SCR.BIT.TIE 	= 0;												//TXI割り込み要求を許可
-	SCI1.SCR.BIT.RIE 	= 0;												//RXIおよびERI割り込み要求を許可
-	SCI1.SCR.BIT.TE 	= 0;												//シリアル送信動作を禁止
-	SCI1.SCR.BIT.RE 	= 0;												//シリアル受信動作を禁止
-	SCI1.SCR.BIT.TEIE = 0;												//TEI割り込み要求を禁止
-	
-	SCI1.SCR.BIT.CKE	= 0;												//内臓ポーレートジェネレータ SCKn端子は入出力ポートとして使用可能 p815 
-	
-	SCI1.SMR.BIT.CKS 		= 0;											//PCLKクロック n=0
-	SCI1.SMR.BIT.CHR 	= 0;											//p830
-	SCI1.SMR.BIT.PE		= 0;											//p830
-	SCI1.SMR.BIT.MP		= 0;											//p830	
-	SCI1.SMR.BIT.STOP	= 0;											//p830
-	
-	SCI1.BRR = 48000000 / ( 64 * 0.5 * BIT_RATE_1 ) - 1;
-	
+	SYSTEM.MSTPCRB.BIT.MSTPB30 = 0;						//SCI0モジュールSTOP状態を解除
+	SCI1.SCR.BYTE		= 0x00;										//シリアルコントロールレジスタ
+																				//河原 0x01→0x00 で通信速度を最大に．分周1																
+																				
+	SCI1.SMR.BYTE		= 0x00;		//シリアルモードレジスタ
+	SCI1.SEMR.BIT.ABCS	= 1;		//調歩同期基本クロックを８サイクルの期間を１ビット期間の転送レートとする
+	SCI1.BRR = ((48*1000000)/((64/(1+SCI1.SEMR.BIT.ABCS))*powf(2,2*SCI1.SMR.BIT.CKS-1)*BIT_RATE_1)-1);;		//ビットレートレジスタ77  9600bpsなら0x01の77
+
 	for( bit_count = 0; bit_count < 0x800000; bit_count++ ){	//１ビット待つため
 	}
+	SCI1.SCR.BYTE		= 0x70;		//送受信動作を許可
 	
-	SCI1.SCR.BIT.TE = 1;													//シリアル送信動作を許可
-	SCI1.SCR.BIT.RE = 1;													//シリアル受信動作を許可
+	IEN(SCI1,RXI1) = 1;
+	IPR(SCI1,RXI1) = 13;
 }
 
 void init_SCI2(void){
@@ -194,7 +185,7 @@ void init_SCI2(void){
 																				//河原 0x01→0x00 で通信速度を最大に．分周1
 	PORT1.DDR.BIT.B2	= 0;		//
 	PORT1.ICR.BIT.B2	= 1;		//
-	PORT1.DDR.BIT.B3 	= 0;	//追加
+	PORT1.DDR.BIT.B3 = 0;	//追加
 	PORT1.ICR.BIT.B3 	= 1;	//追加
 	
 	SCI2.SMR.BYTE		= 0x00;		//シリアルモードレジスタ
